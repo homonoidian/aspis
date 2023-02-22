@@ -10,16 +10,11 @@ record Ins < Op, cursor : Cursor, index : Int32, string : String do
     index...index
   end
 end
-record Sub < Op, selection : Selection, string : String do
+record Sub < Op, selection : Selection, range : Range(Int32, Int32), string : String do
   def ord
     selection.each_line { |line| return line.ord }
 
     0
-  end
-
-  def range
-    min, max = selection.minmax
-    min.@index...max.@index
   end
 end
 
@@ -139,7 +134,7 @@ class Document
   end
 
   def sub(selection : Selection, string : String)
-    @ops << Sub.new(selection, string)
+    @ops << Sub.new(selection, selection.min.@index...selection.max.@index, string)
   end
 
   def apply
@@ -149,22 +144,17 @@ class Document
       imap = {} of Int32 => Int32
 
       @buf.update(0) do |src|
-        min_ord = nil
-
-        s = String.build do |io|
+        String.build do |io|
           size = 0
           start = 0
 
+          @ops.sort_by! { |op| op.range.begin }
+
           @ops.each do |op|
-            # Normalize ops to ranges
-            range = op.range
-
-            min_ord = min_ord ? Math.min(min_ord, op.ord) : op.ord
-
             case op
             when Ins
-              # Append  what goes before the range
-              head = src[start...range.begin]
+              # Append what goes before the range
+              head = src[start...op.index]
               io << head
               size += head.size
               # Append what we're inserting
@@ -172,23 +162,26 @@ class Document
               size += op.string.size
               imap[op.index] = size
               # Move to the end of insertion range
-              start = range.end + (range.exclusive? ? 0 : 1)
+              start = op.index
             when Sub
+              # Normalize ops to ranges
+              range = op.range
               head = src[start...range.begin]
               io << head
               size += head.size
               imap[range.begin] = size
-              io << op.string
-              size += op.string.size
+              unless op.string.empty?
+                io << op.string
+                size += op.string.size
+              end
               imap[range.end] = size
               # Move to the end of replacement range
-              start = range.end + (range.exclusive? ? 0 : 1)
+              start = range.end
             end
           end
+
           io << src[start...src.size]
         end
-
-        s
       end
 
       @i2c.clear
@@ -235,7 +228,11 @@ class ScrollableDocument < Document
       @line_offset = Math.max(0, index_line.ord - height)
     end
     sync
-    editor.@selections.each &.sync
+    editor.@selections.each do |selection|
+      selection.@cursor.move(0)
+      selection.@anchor.move(0)
+      selection.sync
+    end
   end
 
   def height
@@ -243,13 +240,12 @@ class ScrollableDocument < Document
   end
 
   def index_to_coords(index : Int)
-    offset = top.b
-    if index < offset
+    if index < top.b
       @text.position
     elsif index > bot.e
       index_to_coords(bot.e) - index_to_coords(bot.b)
     else
-      @text.find_character_pos(index - offset)
+      @text.find_character_pos(index - top.b)
     end
   end
 
@@ -259,8 +255,12 @@ class ScrollableDocument < Document
     else
       @line_offset = Math.min(@buf.lines - height, @line_offset + delta)
     end
-    @text.string = string
-    editor.@selections.each &.sync
+    sync
+    editor.@selections.each do |selection|
+      selection.@cursor.move(0)
+      selection.@anchor.move(0)
+      selection.sync
+    end
   end
 
   def top

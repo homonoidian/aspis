@@ -207,11 +207,7 @@ class Cohn
       end
       @document.apply
       @selections.each &.collapse
-
-      @selections.last.control do |cursor, _|
-        cursor.scroll_to_view
-      end
-      # uniq_selections
+      uniq_selections
       # @selection.del(-1)
     when .delete?
       @selections.min_of(&.min).scroll_to_view

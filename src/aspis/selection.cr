@@ -36,8 +36,6 @@ class Selection
   # Recalculates the span.
   def sync
     min, max = minmax
-    min.sync
-    max.sync
     @span = min == max ? nil : min.span(upto: max)
   end
 

@@ -22,18 +22,12 @@ class Cursor
   end
 
   def initialize(@document : Document, @index : Int32, @home_column : Int32 = 0)
-    sync
+    move(0)
   end
 
   # Compares this cursor and *other* cursor by indices.
   def <=>(other : Cursor)
     @index <=> other.@index
-  end
-
-  # Synchronizes the state of this cursor with the rest of
-  # the system.
-  def sync
-    seek(@index)
   end
 
   # Returns a tuple with this and *other* cursor sorted in ascending
