@@ -1,0 +1,17 @@
+name: aspis
+version: 0.1.0
+
+authors:
+  - Alexey Yurchenko <homonoidian@yandex.ru>
+
+dependencies:
+  crsfml:
+    github: oprypin/crsfml
+
+targets:
+  aspis:
+    main: src/aspis.cr
+
+crystal: 1.7.0
+
+license: MIT
