@@ -221,17 +221,21 @@ class Cohn
     when .home?
       if event.control
         # For each selection, insert cursors at start of each line
-        @selections =
+        new_selections =
           @selections.flat_map do |selection|
             linesels = [] of Selection
 
             selection.each_line do |line|
+              next if (event.shift && !line.empty?) || (!event.shift && line.empty?)
               linesels << selection(line.b)
             end
 
             linesels
           end
-        uniq_selections
+        unless new_selections.empty?
+          @selections = new_selections
+          uniq_selections
+        end
         return
       end
       event.shift ? @selections.each &.split : @selections.each &.collapse
@@ -245,7 +249,7 @@ class Cohn
     when .end?
       if event.control
         # For each selection, insert cursors at start of each line
-        @selections =
+        new_selections =
           @selections.flat_map do |selection|
             linesels = [] of Selection
 
@@ -256,7 +260,10 @@ class Cohn
 
             linesels
           end
-        uniq_selections
+        unless new_selections.empty?
+          @selections = new_selections
+          uniq_selections
+        end
         return
       end
       event.shift ? @selections.each &.split : @selections.each &.collapse

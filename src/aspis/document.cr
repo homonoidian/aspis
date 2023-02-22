@@ -143,12 +143,13 @@ class Document
     tms = Time.measure do
       imap = {} of Int32 => Int32
 
-      @buf.update(0) do |src|
+      @ops.sort_by! { |op| op.range.begin }
+      min_index = @ops[0].range.begin
+
+      @buf.update(index_to_line(min_index).ord) do |src|
         String.build do |io|
           size = 0
           start = 0
-
-          @ops.sort_by! { |op| op.range.begin }
 
           @ops.each do |op|
             case op
