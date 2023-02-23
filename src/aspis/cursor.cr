@@ -1,3 +1,35 @@
+abstract struct SnapMode
+  setter selection : Selection?
+
+  def initialize(@document : Document)
+  end
+end
+
+struct CharMode < SnapMode
+  def snap(prev, nxt)
+    nxt
+  end
+end
+
+struct WordMode < SnapMode
+  def snap(prev, nxt)
+    return nxt if nxt == prev
+
+    snap_to_beginning = nxt < prev
+    @selection.try do |selection|
+      next if selection.collapsed?
+
+      selection.control do |cursor, anchor|
+        # TODO: breaks C-Shift-Right but fixes mouse & vice versa
+        # if removed
+        snap_to_beginning = cursor < anchor
+      end
+    end
+
+    snap_to_beginning ? @document.word_begin_at(nxt) : @document.word_end_at(nxt)
+  end
+end
+
 # Represents a cursor in the editor. Appearance is managed
 # here too.
 #
@@ -21,7 +53,11 @@ class Cursor
     rect
   end
 
+  property mode : SnapMode
+
   def initialize(@document : Document, @index : Int32, @home_column : Int32 = 0)
+    @mode = CharMode.new(@document)
+
     move(0)
   end
 
@@ -120,9 +156,12 @@ class Cursor
 
   # Increments this cursor's index by *delta*.
   #
-  # That is, if *delta* is negative, this cursor will move that
-  # many characters to the left; if it is positive, this cursor
-  # will move that many characters to the right.
+  # That is, if *delta* is negative, this cursor will move
+  # that many characters to the left; if it is positive,
+  # this cursor will move that many characters to the right.
+  #
+  # If *delta* is zero, simply refreshes this cursor's X, Y
+  # position in document.
   def move(delta : Int)
     seek(@index + delta)
   end
@@ -147,23 +186,28 @@ class Cursor
   end
 
   # Moves *other* cursor to this cursor.
-  def attract(other : Cursor, home = true)
+  def attract(other : Cursor, home = true, snap = true)
     return if same?(other)
 
-    other.seek(@index, home)
+    other.seek(@index, home, snap)
   end
 
   # Moves this cursor to *other* cursor.
-  def seek(other : Cursor, home = true)
-    other.attract(self, home)
+  def seek(other : Cursor, home = true, snap = true)
+    other.attract(self, home, snap)
   end
 
   # Moves this cursor to *index*. Returns self.
   #
   # *home* determines whether the resulting column will be the
   # home column for this cursor.
-  def seek(index : Int, home = true)
-    from, @index = @index, @document.clamp(index)
+  #
+  # *snap* forces the active `SnapMode` on index.
+  def seek(index : Int, home = true, snap = true)
+    from = @index
+    index = @document.clamp(index)
+
+    @index = snap ? @mode.snap(@index, index) : index
     @home_column = @index - line.b if home
 
     if visible?

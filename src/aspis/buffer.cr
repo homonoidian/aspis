@@ -118,6 +118,41 @@ class TextBuffer
     end
   end
 
+  # Non-whitespace characters that terminate word boundary search.
+  WORDSTOP = "`~!@#$%^&*()-=+[{]}|;:'\",.<>/?"
+
+  # Finds word begin position by going back as far as possible,
+  # stopping either on word stop characters `WORDSTOP` or the
+  # first whitespace.
+  def word_begin_at(index : Int)
+    reader = Char::Reader.new(@string, index)
+
+    while reader.has_previous?
+      char = reader.previous_char
+      if char.in?(WORDSTOP) || char.whitespace?
+        reader.next_char
+        break
+      end
+    end
+
+    reader.pos
+  end
+
+  # Find end position by going forth as far as possible, stopping
+  # either on word stop characters or the first whitespace.
+  def word_end_at(index : Int)
+    reader = Char::Reader.new(@string, index)
+
+    while reader.has_next?
+      char = reader.next_char
+      if char.in?(WORDSTOP) || char.whitespace?
+        break
+      end
+    end
+
+    reader.pos
+  end
+
   # Returns the amount of lines in this buffer.
   def lines
     @lines.size

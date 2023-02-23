@@ -9,9 +9,6 @@ class Array
 end
 
 # [ ] self-sufficient cursor
-# [ ] selection modes: ctrl/dbl-click for word boundary select, CTRL-L/triple click for line select
-#     `~!@#$%^&*()-=+[{]}\|;:'",.<>/?
-# [ ] document viewport
 #
 #
 #
@@ -44,6 +41,10 @@ class Cohn
   def selection(cidx : Cursor | Int = 0, aidx : Cursor | Int = cidx, first = false)
     cursor = BlockCursor.new(@document, cidx)
     anchor = Cursor.new(@document, aidx)
+    if @ctrl
+      cursor.mode = WordMode.new(@document)
+      anchor.mode = WordMode.new(@document)
+    end
     seln = Selection.new(@document, cursor, anchor)
     unless first
       seln.control do |cursor, _|
@@ -112,6 +113,9 @@ class Cohn
       @shift = false
     when .l_control?
       @ctrl = false
+      @selections.each do |s|
+        s.mode = CharMode.new(@document)
+      end
     end
   end
 
@@ -136,6 +140,9 @@ class Cohn
       @shift = true
     when .l_control?
       @ctrl = true
+      @selections.each do |s|
+        s.mode = WordMode.new(@document)
+      end
     when .a?
       if event.control
         @selections.clear_from(1)
@@ -312,7 +319,7 @@ class Cohn
     when .up?
       if event.control
         min_seln = @selections.min_by { |it| it.min }
-        min_seln.above?.try { |seln| @selections << seln }
+        min_seln.above?.try { |seln| @selections << seln; seln.mode = WordMode.new(@document) }
       else
         @selections.each do |selection|
           if event.shift
@@ -334,7 +341,7 @@ class Cohn
     when .down?
       if event.control
         max_seln = @selections.max_by { |it| it.max }
-        max_seln.below?.try { |seln| @selections << seln }
+        max_seln.below?.try { |seln| @selections << seln; seln.mode = WordMode.new(@document) }
       else
         @selections.each do |selection|
           if event.shift

@@ -1,4 +1,4 @@
-class Span
+struct Span
   def initialize(@document : Document)
     @frags = [] of SF::RectangleShape
   end

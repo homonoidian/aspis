@@ -26,11 +26,17 @@ class Selection
     # cursors to seek there.
     @gluer = @motions.map(&.cursor)
     @gluer.each do |handle|
-      @cursor.seek(handle, home: handle.home?)
-      @anchor.seek(handle, home: handle.home?)
+      @cursor.seek(handle, home: handle.home?, snap: false)
+      @anchor.seek(handle, home: handle.home?, snap: false)
     end
 
     collapse if collapsed?
+  end
+
+  def mode=(mode : SnapMode)
+    mode.selection = self
+    @cursor.mode = mode
+    @anchor.mode = mode
   end
 
   # Recalculates the span.

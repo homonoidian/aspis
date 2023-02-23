@@ -27,7 +27,7 @@ class Document
     @ops = [] of Op
   end
 
-  delegate :size, to: @buf
+  delegate :word_begin_at, :word_end_at, :word_bounds_at, :size, to: @buf
 
   def sync
     @text.string = string
