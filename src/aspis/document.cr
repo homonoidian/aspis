@@ -192,7 +192,7 @@ class Document
       @ops.each do |op|
         case op
         when Ins
-          op.cursor.seek(imap[op.index], home: op.cursor.home?)
+          op.cursor.seek(imap[op.index], SeekSettings.new(home: op.cursor.home?))
         when Sub
           op.selection.resize do |mini, maxi|
             {imap[op.range.begin], imap[op.range.end]}

@@ -1,28 +1,13 @@
-abstract struct SnapMode
-end
-
-struct CharMode < SnapMode
-  def snap(doc, prev, nxt)
-    doc.clamp(nxt)
-  end
-end
-
-struct WordMode < SnapMode
-  def snap(doc, prev, nxt)
-    doc.clamp(nxt < prev ? doc.word_begin_at(nxt) : doc.word_end_at(nxt))
-  end
-end
-
-struct WordDragMode < SnapMode
-  def initialize(@selection : Selection)
-  end
-
-  def snap(doc, prev, nxt)
-    @selection.control do |cursor, anchor|
-      return cursor < anchor ? doc.word_begin_at(nxt) : doc.word_end_at(nxt)
-    end
-  end
-end
+# Describes *how* a cursor should seek. Belongs primarily to
+# `Cursor#seek`, but may be required or allowed by other,
+# descendant methods.
+#
+# `home` describes whether the seek-d column should persist
+# as the cursor's home column.
+#
+# `step` specifies which `CursorStep` should be used to seek
+# the desired index.
+record SeekSettings, home = true, step : CursorStep = CharStep.new
 
 # Represents a cursor in the editor. Appearance is managed
 # here too.
@@ -146,59 +131,69 @@ class Cursor
 
   # Increments this cursor's index by *delta*.
   #
-  # That is, if *delta* is negative, this cursor will move
-  # that many characters to the left; if it is positive,
-  # this cursor will move that many characters to the right.
+  # That is, if *delta* is negative, this cursor will move that
+  # many characters to the left; if it is positive, this cursor
+  # will move that many characters to the right.
   #
   # If *delta* is zero, simply refreshes this cursor's X, Y
   # position in document.
-  def move(delta : Int, mode = CharMode.new)
-    seek(@index + delta, mode: mode)
+  #
+  # See `seek` to learn what *settings* are.
+  #
+  # Returns self.
+  def move(delta : Int, settings = SeekSettings.new)
+    seek(@index + delta, settings)
   end
 
   # Increments this cursor's line number by *delta*.
   #
   # That is, if *delta* is negative, this cursor will move that
   # many lines up; if it is positive, this cursor will move that
-  # many characters down.
+  # many lines down.
   #
   # If unable to move because the cursor is already at the top
   # or bottom line of the document, moves to the first or last
   # character in the document, respectively.
   #
+  # See `seek` to learn what *settings* are.
+  #
   # Returns self.
-  def ymove(delta : Int, mode = CharMode.new)
+  def ymove(delta : Int, settings = SeekSettings.new(home: false))
     unless tgt = @document.ord_to_line?(line.ord + delta)
       return seek(delta.negative? ? 0 : @document.size)
     end
 
-    seek(tgt.b + Math.min(@home_column, tgt.size), home: false, mode: mode)
+    seek(tgt.b + Math.min(@home_column, tgt.size), settings)
   end
 
-  # Moves *other* cursor to this cursor.
-  def attract(other : Cursor, home = true, mode = CharMode.new)
+  # Moves ("teleports") *other* cursor to this cursor.
+  #
+  # See `seek` to learn what *settings* are.
+  def attract(other : Cursor, settings = SeekSettings.new)
     return if same?(other)
 
-    other.seek(@index, home, mode)
+    other.seek(@index, settings)
   end
 
-  # Moves this cursor to *other* cursor.
-  def seek(other : Cursor, home = true, mode = CharMode.new)
-    other.attract(self, home, mode)
+  # Moves ("teleports") this cursor to *other* cursor.
+  #
+  # See `seek` to learn what *settings* are.
+  def seek(other : Cursor, settings = SeekSettings.new)
+    other.attract(self, settings)
   end
 
-  # Moves this cursor to *index*. Returns self.
+  # Moves this cursor to *index*.
   #
-  # *home* determines whether the resulting column will be the
-  # home column for this cursor.
+  # *settings* specify how this method should seek *index*.
+  # See `SeekSettings` for the available settings.
   #
-  # *snap* forces the active `SnapMode` on index.
-  def seek(index : Int, home = true, mode = CharMode.new)
+  # Returns self.
+  def seek(index : Int, settings = SeekSettings.new)
     from = @index
     index = @document.clamp(index)
 
-    @index = mode.snap(@document, @index, index)
-    @home_column = @index - line.b if home
+    @index = settings.step.advance(@document, @index, index)
+    @home_column = @index - line.b if settings.home
 
     if visible?
       rect.size = size
@@ -207,8 +202,7 @@ class Cursor
 
     # Prevent infinite loop down the stream. There ought to be
     # a better way, though, because emitting motion even when
-    # no motion occured would be beneficial for e.g. automatic
-    # synching.
+    # no motion occured could be beneficial.
     unless from == @index
       motions.emit Motion.new(self, from, to: @index)
     end
@@ -217,22 +211,27 @@ class Cursor
   end
 
   # Moves this cursor to the beginning of its line.
-  def seek_line_start(home = true, mode = CharMode.new)
-    seek(line.b, home, mode)
+  #
+  # See `seek` to learn what *settings* are.
+  def seek_line_start(settings = SeekSettings.new)
+    seek(line.b, settings)
   end
 
   # Moves this cursor to the end of its line.
-  def seek_line_end(home = true, mode = CharMode.new)
-    seek(line.e, home, mode)
+  #
+  # See `seek` to learn what *settings* are.
+  def seek_line_end(settings = SeekSettings.new)
+    seek(line.e, settings)
   end
 
   # Moves this cursor to the given *column*.
-  def seek_column(column : Int, home = true, mode = CharMode.new)
-    seek(line.b + column, home, mode)
+  #
+  # See `seek` to learn what *settings* are.
+  def seek_column(column : Int, settings = SeekSettings.new)
+    seek(line.b + column, settings)
   end
 
-  # Inserts *string* before this cursor, then moves this cursor
-  # forward by the amount of characters in *string*.
+  # Inserts *string* before this cursor.
   def ins(string : String)
     @document.ins(self, @index, string)
   end

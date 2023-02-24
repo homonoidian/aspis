@@ -76,7 +76,9 @@ class Cohn
     @selections.each &.split
     @selections.each do |sel|
       sel.control do |cursor, anchor|
-        cursor.seek(@document.coords_to_index(event.x, event.y), mode: ctrl? ? WordDragMode.new(sel) : CharMode.new)
+        step = ctrl? ? WordDragStep.new(sel) : CharStep.new
+
+        cursor.seek(@document.coords_to_index(event.x, event.y), SeekSettings.new(step: step))
       end
     end
   end
@@ -217,7 +219,7 @@ class Cohn
         end
 
         selection.control do |cursor, anchor|
-          cursor.move(-1, mode: WordMode.new)
+          cursor.move(-1, SeekSettings.new(step: WordStep.new))
         end
       end
 
@@ -235,7 +237,7 @@ class Cohn
         end
 
         selection.control do |cursor, anchor|
-          cursor.move(+1, mode: WordMode.new)
+          cursor.move(+1, SeekSettings.new(step: WordStep.new))
         end
       end
 
@@ -251,7 +253,7 @@ class Cohn
     when .backspace? # Delete word before
       @selections.min_of(&.min).scroll_to_view
       @selections.each do |sel|
-        sel.del(-1, mode: WordMode.new)
+        sel.del(-1, SeekSettings.new(step: WordStep.new))
       end
       @document.apply
       @selections.each &.collapse
@@ -259,7 +261,7 @@ class Cohn
     when .delete? # Delete word after
       @selections.min_of(&.min).scroll_to_view
       @selections.each do |sel|
-        sel.del(+1, mode: WordMode.new)
+        sel.del(+1, SeekSettings.new(step: WordStep.new))
       end
       @document.apply
       @selections.each &.collapse
