@@ -21,7 +21,7 @@ end
 #     500 000 cursors do APPLY in: approx 500ms
 #     same for selections, really
 #
-# [ ] AVOID looping over all million or 500 000 selections on each
+# [+] AVOID looping over all million or 500 000 selections on each
 # frame!! build visible selection list in uniq_selections because
 # we do a linear pass there anyway
 #
@@ -35,6 +35,8 @@ class Cohn
     @selections = [] of Selection
     @selections << selection(0, focus: false)
 
+    @visible_selections = [] of Selection
+
     # @selection = Selection.new(@document, @cursor, @anchor)
 
     DragHandler.on(self)
@@ -43,6 +45,8 @@ class Cohn
     KeyboardHandler.on(self)
 
     @document.editor = self
+
+    recompute_visible_selections
   end
 
   def selection(cidx : Cursor | Int = 0, aidx : Cursor | Int = cidx, focus = true)
@@ -57,11 +61,13 @@ class Cohn
     seln
   end
 
+  # merge overlaps & recompute visible
   def uniq_selections
     @selections.unstable_sort!
 
     if @selections.size > 1
-      stack = [@selections[0]] of Selection
+      stack = [@selections.first] of Selection
+      visible = stack.first.visible? ? [stack.first] : [] of Selection
 
       @selections.each(within: 1..) do |hi|
         lo = stack.last
@@ -69,10 +75,14 @@ class Cohn
           stack.pop
           hi.min.seek(lo.min)
         end
+        visible << hi if hi.visible?
         stack << hi
       end
 
       @selections = stack
+      @visible_selections = visible
+    else
+      @visible_selections = @selections.dup # just sync
     end
 
     @selections.last.control do |cursor, _|
@@ -80,107 +90,132 @@ class Cohn
     end
   end
 
-  def on_drag(event : SF::Event::MouseMoved)
-    @selections.clear_from(1)
-    @selections.each &.split
-    @selections.each do |sel|
-      sel.control do |cursor, anchor|
-        step = ctrl? ? WordDragStep.new(sel) : CharStep.new
+  # just recompute visible
+  def recompute_visible_selections
+    @visible_selections = @selections.select(&.visible?)
+  end
 
-        cursor.seek(@document.coords_to_index(event.x, event.y), SeekSettings.new(step: step))
+  # use everywhere you touch @selections or @document !!!
+  def i_touch_selections_or_doc
+    result = yield
+    uniq_selections
+    result
+  end
+
+  def on_drag(event : SF::Event::MouseMoved)
+    i_touch_selections_or_doc do
+      @selections.clear_from(1)
+      @selections.each &.split
+      @selections.each do |sel|
+        sel.control do |cursor, anchor|
+          step = ctrl? ? WordDragStep.new(sel) : CharStep.new
+
+          cursor.seek(@document.coords_to_index(event.x, event.y), SeekSettings.new(step: step))
+        end
       end
     end
   end
 
   def on_click(event : SF::Event::MouseButtonPressed)
-    if ctrl?
-      seln = @selections.last.copy.collapse
-      seln.control do |cursor, anchor|
-        cursor.seek(@document.coords_to_index(event.x, event.y))
-      end
-      @selections << seln
-    elsif shift?
-      @selections.clear_from(1)
-      @selections.each &.split
-      @selections.each do |selection|
-        selection.control do |cursor, anchor|
+    i_touch_selections_or_doc do
+      if ctrl?
+        seln = @selections.last.copy.collapse
+        seln.control do |cursor, anchor|
+          cursor.seek(@document.coords_to_index(event.x, event.y))
+        end
+        @selections << seln
+      elsif shift?
+        @selections.clear_from(1)
+        @selections.each &.split
+        @selections.each do |selection|
+          selection.control do |cursor, anchor|
+            cursor.seek(@document.coords_to_index(event.x, event.y))
+          end
+        end
+      else
+        @selections.clear_from(1)
+        @selections[0].collapse
+        @selections[0].control do |cursor, anchor|
           cursor.seek(@document.coords_to_index(event.x, event.y))
         end
       end
-    else
-      @selections.clear_from(1)
-      @selections[0].collapse
-      @selections[0].control do |cursor, anchor|
-        cursor.seek(@document.coords_to_index(event.x, event.y))
-      end
     end
-    uniq_selections
   end
 
   def on_input(event : SF::Event::TextEntered, chr : Char)
-    @selections.each &.ins(chr)
-    @document.apply
-    @selections.each &.collapse
-    uniq_selections
+    i_touch_selections_or_doc do
+      @selections.each &.ins(chr)
+      @document.apply
+      @selections.each &.collapse
+    end
   end
 
   def on_scroll(event : SF::Event::MouseWheelScrolled)
     @document.scroll(-event.delta.to_i)
+    recompute_visible_selections
   end
 
   def on_with_ctrl_pressed(event : SF::Event::KeyPressed)
     case event.code
     when .a? # Select all
-      @selections.clear_from(1)
-      @selections[0].select_all
+      i_touch_selections_or_doc do
+        @selections.clear_from(1)
+        @selections[0].select_all
+      end
     when .l? # Select line
-      @selections.each &.select_line
-    when .c? # Copy line/copy selection
-      content = String.build do |io|
+      i_touch_selections_or_doc do
+        @selections.each &.select_line
+      end
+    when .c? # Copy line/copy selection DOES NOT WORK!!
+      i_touch_selections_or_doc do
+        content = String.build do |io|
+          @selections.each do |selection|
+            if selection.collapsed?
+              # Selection collapsed: copy line.
+              io << selection.line.content
+              next
+            end
+            # Selection not collapsed: copy selection.
+            selection.each_line_with_bounds do |line, b, e|
+              io.puts line.slice(b, e)
+            end
+          end
+        end
+
+        SF::Clipboard.string = content
+      end
+    when .v? # Paste DOES NOT WORK!!
+      i_touch_selections_or_doc do
+        s = SF::Clipboard.string
+        append = s.ends_with?('\n')
+
+        cols = [] of Int32
         @selections.each do |selection|
-          if selection.collapsed?
-            # Selection collapsed: copy line.
-            io << selection.line.content
-            next
-          end
-          # Selection not collapsed: copy selection.
-          selection.each_line_with_bounds do |line, b, e|
-            io.puts line.slice(b, e)
+          if append && selection.collapsed?
+            selection.control do |cursor|
+              cols << cursor.column
+              cursor.seek_line_end
+            end
+            selection.insln
+            selection.ins(s.chomp)
           end
         end
-      end
-
-      SF::Clipboard.string = content
-    when .v? # Paste
-      s = SF::Clipboard.string
-      append = s.ends_with?('\n')
-
-      cols = [] of Int32
-      @selections.each do |selection|
-        if append && selection.collapsed?
-          selection.control do |cursor|
-            cols << cursor.column
-            cursor.seek_line_end
+        @document.apply
+        uniq_selections
+        index = 0
+        @selections.each do |selection|
+          if append && selection.collapsed?
+            selection.control do |cursor|
+              cursor.seek_column(cols[index])
+            end
+            index += 1
+          else
+            selection.ins(s)
           end
-          selection.insln
-          selection.ins(s.chomp)
         end
+        @document.apply
+        uniq_selections
       end
-      @document.apply
-      uniq_selections
-      index = 0
-      @selections.each do |selection|
-        if append && selection.collapsed?
-          selection.control do |cursor|
-            cursor.seek_column(cols[index])
-          end
-          index += 1
-        else
-          selection.ins(s)
-        end
-      end
-      @document.apply
-      uniq_selections
     when .home? # Insert cursors at start of each empty (shift)/nonempty line
       new_selections =
         @selections.flat_map do |selection|
@@ -195,8 +230,9 @@ class Cohn
         end
 
       unless new_selections.empty?
-        @selections = new_selections
-        uniq_selections
+        i_touch_selections_or_doc do
+          @selections = new_selections
+        end
       end
     when .end? # Insert cursors at start of each empty (shift)/nonempty line
       new_selections =
@@ -212,69 +248,74 @@ class Cohn
         end
 
       unless new_selections.empty?
-        @selections = new_selections
-        uniq_selections
+        i_touch_selections_or_doc do
+          @selections = new_selections
+        end
       end
     when .left? # Go to the beginning of word
-      @selections.each do |selection|
-        if shift?
-          selection.split
-        else
-          unless selection.collapsed?
-            selection.max.seek(selection.min)
-            selection.collapse { }
-            next
+      i_touch_selections_or_doc do
+        @selections.each do |selection|
+          if shift?
+            selection.split
+          else
+            unless selection.collapsed?
+              selection.max.seek(selection.min)
+              selection.collapse { }
+              next
+            end
+          end
+
+          selection.control do |cursor, anchor|
+            cursor.move(-1, SeekSettings.new(step: WordStep.new))
           end
         end
-
-        selection.control do |cursor, anchor|
-          cursor.move(-1, SeekSettings.new(step: WordStep.new))
-        end
       end
-
-      uniq_selections
     when .right? # Go to the end of word
-      @selections.each do |selection|
-        if shift?
-          selection.split
-        else
-          unless selection.collapsed?
-            selection.max.seek(selection.min)
-            selection.collapse { }
-            next
+      i_touch_selections_or_doc do
+        @selections.each do |selection|
+          if shift?
+            selection.split
+          else
+            unless selection.collapsed?
+              selection.max.seek(selection.min)
+              selection.collapse { }
+              next
+            end
+          end
+
+          selection.control do |cursor, anchor|
+            cursor.move(+1, SeekSettings.new(step: WordStep.new))
           end
         end
-
-        selection.control do |cursor, anchor|
-          cursor.move(+1, SeekSettings.new(step: WordStep.new))
-        end
       end
-
-      uniq_selections
     when .up? # Copy selection above
-      min_seln = @selections.min_by { |it| it.min }
-      min_seln.above?.try { |seln| @selections << seln }
-      uniq_selections
+      i_touch_selections_or_doc do
+        min_seln = @selections.min_by { |it| it.min }
+        min_seln.above?.try { |seln| @selections << seln }
+      end
     when .down? # Copy selection below
-      max_seln = @selections.max_by { |it| it.max }
-      max_seln.below?.try { |seln| @selections << seln }
-      uniq_selections
+      i_touch_selections_or_doc do
+        max_seln = @selections.max_by { |it| it.max }
+        max_seln.below?.try { |seln| @selections << seln }
+      end
     when .backspace? # Delete word before
-      @selections.min_of(&.min).scroll_to_view
-      @selections.each do |sel|
-        sel.del(-1, SeekSettings.new(step: WordStep.new))
+      i_touch_selections_or_doc do
+        @selections.min_of(&.min).scroll_to_view
+        @selections.each do |sel|
+          sel.del(-1, SeekSettings.new(step: WordStep.new))
+        end
+        @document.apply
+        @selections.each &.collapse
       end
-      @document.apply
-      @selections.each &.collapse
-      uniq_selections
     when .delete? # Delete word after
-      @selections.min_of(&.min).scroll_to_view
-      @selections.each do |sel|
-        sel.del(+1, SeekSettings.new(step: WordStep.new))
+      i_touch_selections_or_doc do
+        @selections.min_of(&.min).scroll_to_view
+        @selections.each do |sel|
+          sel.del(+1, SeekSettings.new(step: WordStep.new))
+        end
+        @document.apply
+        @selections.each &.collapse
       end
-      @document.apply
-      @selections.each &.collapse
-      uniq_selections
     else
       return false
     end
@@ -285,116 +326,121 @@ class Cohn
   def on_key_pressed(event : SF::Event::KeyPressed)
     case event.code
     when .enter?
-      @selections.each &.insln # cannot collide
-      @document.apply
-      @selections.each &.collapse
-      uniq_selections
-      # @selection.puts("")
+      i_touch_selections_or_doc do
+        @selections.each &.insln # cannot collide
+        @document.apply
+        @selections.each &.collapse
+      end
     when .backspace?
-      @selections.min_of(&.min).scroll_to_view
-      @selections.each do |sel|
-        sel.del(-1)
+      i_touch_selections_or_doc do
+        @selections.min_of(&.min).scroll_to_view
+        @selections.each do |sel|
+          sel.del(-1)
+        end
+        @document.apply
+        @selections.each &.collapse
       end
-      @document.apply
-      @selections.each &.collapse
-      uniq_selections
-      # @selection.del(-1)
     when .delete?
-      @selections.min_of(&.min).scroll_to_view
-      @selections.each do |sel|
-        sel.del(+1)
+      i_touch_selections_or_doc do
+        @selections.min_of(&.min).scroll_to_view
+        @selections.each do |sel|
+          sel.del(+1)
+        end
+        @document.apply
+        @selections.each &.collapse
       end
-      @document.apply
-      @selections.each &.collapse
-      uniq_selections
-      # @selection.del
     when .home?
-      shift? ? @selections.each &.split : @selections.each &.collapse
-      # shift? ? @selection.split : @selection.collapse
-      @selections.each do |sel|
-        sel.control do |cursor, anchor|
-          cursor.seek_line_start
+      i_touch_selections_or_doc do
+        shift? ? @selections.each &.split : @selections.each &.collapse
+        # shift? ? @selection.split : @selection.collapse
+        @selections.each do |sel|
+          sel.control do |cursor, anchor|
+            cursor.seek_line_start
+          end
         end
       end
-      uniq_selections
     when .end?
-      shift? ? @selections.each &.split : @selections.each &.collapse
-      # shift? ? @selection.split : @selection.collapse
-      @selections.each do |sel|
-        sel.control do |cursor, anchor|
-          cursor.seek_line_end
+      i_touch_selections_or_doc do
+        shift? ? @selections.each &.split : @selections.each &.collapse
+        # shift? ? @selection.split : @selection.collapse
+        @selections.each do |sel|
+          sel.control do |cursor, anchor|
+            cursor.seek_line_end
+          end
         end
       end
-      uniq_selections
     when .left?
-      @selections.each do |selection|
-        if shift?
-          selection.split
-        else
-          unless selection.collapsed?
-            selection.max.seek(selection.min)
-            selection.collapse { }
-            next
+      i_touch_selections_or_doc do
+        @selections.each do |selection|
+          if shift?
+            selection.split
+          else
+            unless selection.collapsed?
+              selection.max.seek(selection.min)
+              selection.collapse { }
+              next
+            end
+          end
+
+          selection.control do |cursor, anchor|
+            cursor.move(-1)
           end
         end
-
-        selection.control do |cursor, anchor|
-          cursor.move(-1)
-        end
       end
-
-      uniq_selections
     when .right?
-      @selections.each do |selection|
-        if shift?
-          selection.split
-        else
-          unless selection.collapsed?
-            selection.min.seek(selection.max)
-            selection.collapse { }
-            next
+      i_touch_selections_or_doc do
+        @selections.each do |selection|
+          if shift?
+            selection.split
+          else
+            unless selection.collapsed?
+              selection.min.seek(selection.max)
+              selection.collapse { }
+              next
+            end
+          end
+
+          selection.control do |cursor, anchor|
+            cursor.move(+1)
           end
         end
-
-        selection.control do |cursor, anchor|
-          cursor.move(+1)
-        end
       end
-      uniq_selections
     when .up?
-      @selections.each do |selection|
-        if shift?
-          selection.split
-        else
-          unless selection.collapsed?
-            selection.max.seek(selection.min)
-            selection.collapse { }
-            next
+      i_touch_selections_or_doc do
+        @selections.each do |selection|
+          if shift?
+            selection.split
+          else
+            unless selection.collapsed?
+              selection.max.seek(selection.min)
+              selection.collapse { }
+              next
+            end
+          end
+
+          selection.control do |cursor, anchor|
+            cursor.ymove(-1)
           end
         end
-
-        selection.control do |cursor, anchor|
-          cursor.ymove(-1)
-        end
       end
-      uniq_selections
     when .down?
-      @selections.each do |selection|
-        if shift?
-          selection.split
-        else
-          unless selection.collapsed?
-            selection.min.seek(selection.max)
-            selection.collapse { }
-            next
+      i_touch_selections_or_doc do
+        @selections.each do |selection|
+          if shift?
+            selection.split
+          else
+            unless selection.collapsed?
+              selection.min.seek(selection.max)
+              selection.collapse { }
+              next
+            end
+          end
+
+          selection.control do |cursor, anchor|
+            cursor.ymove(+1)
           end
         end
-
-        selection.control do |cursor, anchor|
-          cursor.ymove(+1)
-        end
       end
-      uniq_selections
     end
   end
 
@@ -409,7 +455,7 @@ class Cohn
       end
       @window.clear(SF::Color::White)
       @document.present(@window)
-      @selections.each do |seln|
+      @visible_selections.each do |seln|
         seln.present(@window)
       end
       @window.display
