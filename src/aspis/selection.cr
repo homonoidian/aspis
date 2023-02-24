@@ -41,7 +41,7 @@ class Selection
 
   # Recalculates the span.
   def sync
-    @span = collapsed? ? nil : min.span(upto: max)
+    @span = collapsed? || !visible? ? nil : min.span(upto: max)
   end
 
   # Returns a tuple of minimum (leftmost), maximum (rightmost)
@@ -58,6 +58,12 @@ class Selection
   # Returns the maximum (rightmost) of this selection's cursors.
   def max
     minmax[1]
+  end
+
+  # Returns whether this entire selection, or any part of it,
+  # is visible in the document.
+  def visible?
+    min.partially_visible?(upto: max)
   end
 
   # Returns whether this selection includes *other*'s cursor
@@ -276,6 +282,8 @@ class Selection
 
   # Displays this selection in *window*.
   def present(window)
+    return unless visible?
+
     @span.try &.present(window)
     @cursor.present(window)
     @anchor.present(window) unless collapsed?

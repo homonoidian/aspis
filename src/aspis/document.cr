@@ -125,6 +125,13 @@ class Document
     index.in?(top.b..bot.e)
   end
 
+  def range_partially_visible?(*, from b, to e)
+    vib, vie = top.b, bot.e
+
+    # EITHER b..e is visible OR b..e includes visible
+    b <= vib <= e || b <= vie <= e || vib <= b <= vie || vib <= e <= vie
+  end
+
   def line_visible?(line : Line)
     index_visible?(line.b) && index_visible?(line.e)
   end

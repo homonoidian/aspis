@@ -109,18 +109,31 @@ class Cursor
     @document.index_visible?(@index)
   end
 
+  # Returns whether the range starting from this cursor, and
+  # up to *other* cursor, is partially or completely visible.
+  def partially_visible?(*, upto other : Cursor)
+    other.partially_visible?(from: @index)
+  end
+
+  # Returns whether the range starting from the given *start*
+  # index, and up to this cursor, is partially or completely
+  # visible.
+  def partially_visible?(*, from start : Int)
+    @document.range_partially_visible?(from: start, to: @index)
+  end
+
   # Builds and returns a `Span` starting from this cursor up
   # to *other* cursor (based on indices of both). Order matters!
   # This cursor's index must be smaller than that of *other*.
-  def span(upto other : Cursor)
+  def span(*, upto other : Cursor)
     other.span(from: @index)
   end
 
-  # Builds and returns a `Span` starting from *index* up to
+  # Builds and returns a `Span` starting from *start* up to
   # this cursor. Order matters! This cursor's index must be
-  # greater than *index*.
-  def span(from index : Int)
-    Span.build(@document, from: index, to: @index)
+  # greater than *start*.
+  def span(*, from start : Int)
+    Span.build(@document, from: start, to: @index)
   end
 
   # Yields `Line`s starting from this cursor's line up to
