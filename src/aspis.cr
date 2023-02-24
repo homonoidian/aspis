@@ -10,6 +10,8 @@ end
 
 # [ ] self-sufficient cursor
 #
+# todo: when word is 1 character long word step is messed up
+# todo: when word step + delete cursor is hidden for some reason
 #
 #
 # ----
@@ -64,6 +66,12 @@ class Cohn
   # merge overlaps & recompute visible
   def uniq_selections
     @selections.unstable_sort!
+    # TODO: consider keeping sorted list of them, it's not that hard
+    # TODO: now that i think of it, consider keeping sorted & non-overlapped
+    # list, i.e., rule out overlaps at insertion.
+    # TODO: although mutations will spoil that
+    # TODO: but the sorted list can subscribe to mutations and move
+    # stuff using binary search!
 
     if @selections.size > 1
       stack = [@selections.first] of Selection
