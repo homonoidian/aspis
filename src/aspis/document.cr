@@ -218,15 +218,19 @@ end
 class ScrollableDocument < Document
   @line_offset = 0
 
+  def line_offset=(@line_offset)
+    @i2c.clear
+  end
+
   def scroll_to_view(index : Int)
     return if index_visible?(index)
 
     index_line = index_to_line(index)
 
     if index < top.b
-      @line_offset = index_line.ord
+      self.line_offset = index_line.ord
     elsif index > bot.e
-      @line_offset = Math.max(0, index_line.ord - height)
+      self.line_offset = Math.max(0, index_line.ord - height)
     end
     sync
     editor.@selections.each do |selection|
@@ -241,20 +245,22 @@ class ScrollableDocument < Document
   end
 
   def index_to_coords(index : Int)
-    if index < top.b
-      @text.position
-    elsif index > bot.e
-      index_to_coords(bot.e) - index_to_coords(bot.b)
-    else
-      @text.find_character_pos(index - top.b)
+    @i2c[index] ||= begin
+      if index < top.b
+        @text.position
+      elsif index > bot.e
+        index_to_coords(bot.e) - index_to_coords(bot.b)
+      else
+        @text.find_character_pos(index - top.b)
+      end
     end
   end
 
   def scroll(delta : Int)
     if delta.negative?
-      @line_offset = Math.max(0, @line_offset + delta)
+      self.line_offset = Math.max(0, @line_offset + delta)
     else
-      @line_offset = Math.min(@buf.lines - height, @line_offset + delta)
+      self.line_offset = Math.min(@buf.lines - height, @line_offset + delta)
     end
     sync
     editor.@selections.each do |selection|

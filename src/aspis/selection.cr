@@ -33,10 +33,15 @@ class Selection
     collapse if collapsed?
   end
 
+  # Compares this and *other* selections based on their minimum
+  # cursors (see `min`).
+  def <=>(other : Selection)
+    min <=> other.min
+  end
+
   # Recalculates the span.
   def sync
-    min, max = minmax
-    @span = min == max ? nil : min.span(upto: max)
+    @span = collapsed? ? nil : min.span(upto: max)
   end
 
   # Returns a tuple of minimum (leftmost), maximum (rightmost)

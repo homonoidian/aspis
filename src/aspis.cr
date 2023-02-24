@@ -28,7 +28,7 @@ class Cohn
     @document = ScrollableDocument.new(@buf, font)
 
     @selections = [] of Selection
-    @selections << selection(0, first: true)
+    @selections << selection(0, focus: false)
 
     # @selection = Selection.new(@document, @cursor, @anchor)
 
@@ -40,11 +40,11 @@ class Cohn
     @document.editor = self
   end
 
-  def selection(cidx : Cursor | Int = 0, aidx : Cursor | Int = cidx, first = false)
+  def selection(cidx : Cursor | Int = 0, aidx : Cursor | Int = cidx, focus = true)
     cursor = BlockCursor.new(@document, cidx)
     anchor = Cursor.new(@document, aidx)
     seln = Selection.new(@document, cursor, anchor)
-    unless first
+    if focus
       seln.control do |cursor, _|
         cursor.scroll_to_view
       end
@@ -57,13 +57,21 @@ class Cohn
   end
 
   def uniq_selections
-    @selections.each do |selection|
-      # TODO: merge selections when they overlap instead of rejecting
-      @selections.reject! do |other|
-        next if selection.same?(other) # do not reject
+    @selections.unstable_sort!
 
-        selection.overlaps?(other)
+    if @selections.size > 1
+      stack = [@selections[0]] of Selection
+
+      @selections.each(within: 1..) do |hi|
+        lo = stack.last
+        if lo.overlaps?(hi)
+          stack.pop
+          hi.min.seek(lo.min)
+        end
+        stack << hi
       end
+
+      @selections = stack
     end
 
     @selections.last.control do |cursor, _|
@@ -196,7 +204,7 @@ class Cohn
 
           selection.each_line do |line|
             next if (shift? && !line.empty?) || (!shift? && line.empty?)
-            linesels << selection(line.e)
+            linesels << selection(line.e, focus: false)
           end
 
           linesels
