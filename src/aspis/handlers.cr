@@ -4,6 +4,13 @@ module EventTarget
 
   # Returns whether the shift key is pressed.
   property? shift = false
+
+  @handlers = [] of EventHandler
+
+  # Attaches *handler* to this event target.
+  def attach(handler : EventHandler)
+    @handlers << handler
+  end
 end
 
 abstract class EventHandler

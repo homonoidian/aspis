@@ -29,7 +29,6 @@ class Cohn
   include EventTarget
 
   def initialize(@window : SF::RenderWindow, content, font)
-    @handlers = [] of EventHandler
     @buf = TextBuffer.new(content)
     @document = ScrollableDocument.new(@buf, font)
 
@@ -56,10 +55,6 @@ class Cohn
       end
     end
     seln
-  end
-
-  def attach(handler : EventHandler)
-    @handlers << handler
   end
 
   def uniq_selections
