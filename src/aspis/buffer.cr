@@ -1,3 +1,28 @@
+class String
+  # Same as `each_byte` but starts iterating from *offset*-th byte.
+  def each_byte(*, from offset : Int)
+    unsafe_byte_slice(offset, count: bytesize - offset).each do |byte|
+      yield byte
+    end
+  end
+
+  # Same as `each_char_with_index` but starts iterating from
+  # *offset*-th character.
+  def each_char_with_index(*, from offset : Int)
+    if single_byte_optimizable?
+      each_byte(from: offset) do |byte|
+        yield (byte < 0x80 ? byte.unsafe_chr : Char::REPLACEMENT), offset
+        offset += 1
+      end
+    else
+      Char::Reader.new(self, offset).each do |char|
+        yield char, offset
+        offset += 1
+      end
+    end
+  end
+end
+
 # `TextBuffer` is an abstraction over a string and an array
 # of line bounds (see `Line`) in that string. These bounds are
 # recomputed after every `update` (e.g. on every keystroke).
@@ -33,9 +58,7 @@ class TextBuffer
     # Recalculate the line start/end indices after start.
     # This will overwrite existing lines, and leave excess
     # old lines.
-    start.upto(size - 1) do |index|
-      char = self[index]
-
+    @string.each_char_with_index(from: start) do |char, index|
       next unless char == '\n'
 
       # Add the line. Clients can then use it to access the
