@@ -125,6 +125,8 @@ class TextBuffer
   # stopping either on word stop characters `WORDSTOP` or the
   # first whitespace.
   def word_begin_at(index : Int)
+    return 0 if index <= 0
+
     reader = Char::Reader.new(@string, index)
 
     while reader.has_previous?
@@ -135,12 +137,14 @@ class TextBuffer
       end
     end
 
-    reader.pos
+    Math.max(reader.pos, 0)
   end
 
   # Find end position by going forth as far as possible, stopping
   # either on word stop characters or the first whitespace.
   def word_end_at(index : Int)
+    return size - 1 if index >= size - 1
+
     reader = Char::Reader.new(@string, index)
 
     while reader.has_next?
@@ -150,7 +154,7 @@ class TextBuffer
       end
     end
 
-    reader.pos
+    Math.min(reader.pos, size - 1)
   end
 
   # Returns the amount of lines in this buffer.

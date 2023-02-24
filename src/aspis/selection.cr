@@ -26,17 +26,11 @@ class Selection
     # cursors to seek there.
     @gluer = @motions.map(&.cursor)
     @gluer.each do |handle|
-      @cursor.seek(handle, home: handle.home?, snap: false)
-      @anchor.seek(handle, home: handle.home?, snap: false)
+      @cursor.seek(handle, home: handle.home?)
+      @anchor.seek(handle, home: handle.home?)
     end
 
     collapse if collapsed?
-  end
-
-  def mode=(mode : SnapMode)
-    mode.selection = self
-    @cursor.mode = mode
-    @anchor.mode = mode
   end
 
   # Recalculates the span.
@@ -230,7 +224,7 @@ class Selection
   # Deletes *count* characters starting from cursor if this
   # selection is collapsed. Otherwise, deletes the selected
   # text and ignores *count*.
-  def del(count = 0)
+  def del(count = 0, mode = CharMode.new)
     if collapsed?
       return if count.negative? && @cursor.at_document_start?
       return if count.positive? && @cursor.at_document_end?
@@ -239,7 +233,7 @@ class Selection
 
       # If count is negative, move anchor back. If it is positive,
       # move cursor forward.
-      (count.negative? ? @anchor : @cursor).move(count)
+      (count.negative? ? @anchor : @cursor).move(count, mode: mode)
     end
 
     @document.sub(self, "")

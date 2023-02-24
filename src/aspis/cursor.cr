@@ -1,32 +1,26 @@
 abstract struct SnapMode
-  setter selection : Selection?
-
-  def initialize(@document : Document)
-  end
 end
 
 struct CharMode < SnapMode
-  def snap(prev, nxt)
-    nxt
+  def snap(doc, prev, nxt)
+    doc.clamp(nxt)
   end
 end
 
 struct WordMode < SnapMode
-  def snap(prev, nxt)
-    return nxt if nxt == prev
+  def snap(doc, prev, nxt)
+    doc.clamp(nxt < prev ? doc.word_begin_at(nxt) : doc.word_end_at(nxt))
+  end
+end
 
-    snap_to_beginning = nxt < prev
-    @selection.try do |selection|
-      next if selection.collapsed?
+struct WordDragMode < SnapMode
+  def initialize(@selection : Selection)
+  end
 
-      selection.control do |cursor, anchor|
-        # TODO: breaks C-Shift-Right but fixes mouse & vice versa
-        # if removed
-        snap_to_beginning = cursor < anchor
-      end
+  def snap(doc, prev, nxt)
+    @selection.control do |cursor, anchor|
+      return cursor < anchor ? doc.word_begin_at(nxt) : doc.word_end_at(nxt)
     end
-
-    snap_to_beginning ? @document.word_begin_at(nxt) : @document.word_end_at(nxt)
   end
 end
 
@@ -53,11 +47,7 @@ class Cursor
     rect
   end
 
-  property mode : SnapMode
-
   def initialize(@document : Document, @index : Int32, @home_column : Int32 = 0)
-    @mode = CharMode.new(@document)
-
     move(0)
   end
 
@@ -162,8 +152,8 @@ class Cursor
   #
   # If *delta* is zero, simply refreshes this cursor's X, Y
   # position in document.
-  def move(delta : Int)
-    seek(@index + delta)
+  def move(delta : Int, mode = CharMode.new)
+    seek(@index + delta, mode: mode)
   end
 
   # Increments this cursor's line number by *delta*.
@@ -177,24 +167,24 @@ class Cursor
   # character in the document, respectively.
   #
   # Returns self.
-  def ymove(delta : Int)
+  def ymove(delta : Int, mode = CharMode.new)
     unless tgt = @document.ord_to_line?(line.ord + delta)
       return seek(delta.negative? ? 0 : @document.size)
     end
 
-    seek(tgt.b + Math.min(@home_column, tgt.size), home: false)
+    seek(tgt.b + Math.min(@home_column, tgt.size), home: false, mode: mode)
   end
 
   # Moves *other* cursor to this cursor.
-  def attract(other : Cursor, home = true, snap = true)
+  def attract(other : Cursor, home = true, mode = CharMode.new)
     return if same?(other)
 
-    other.seek(@index, home, snap)
+    other.seek(@index, home, mode)
   end
 
   # Moves this cursor to *other* cursor.
-  def seek(other : Cursor, home = true, snap = true)
-    other.attract(self, home, snap)
+  def seek(other : Cursor, home = true, mode = CharMode.new)
+    other.attract(self, home, mode)
   end
 
   # Moves this cursor to *index*. Returns self.
@@ -203,11 +193,11 @@ class Cursor
   # home column for this cursor.
   #
   # *snap* forces the active `SnapMode` on index.
-  def seek(index : Int, home = true, snap = true)
+  def seek(index : Int, home = true, mode = CharMode.new)
     from = @index
     index = @document.clamp(index)
 
-    @index = snap ? @mode.snap(@index, index) : index
+    @index = mode.snap(@document, @index, index)
     @home_column = @index - line.b if home
 
     if visible?
@@ -227,18 +217,18 @@ class Cursor
   end
 
   # Moves this cursor to the beginning of its line.
-  def seek_line_start(home = true)
-    seek(line.b, home)
+  def seek_line_start(home = true, mode = CharMode.new)
+    seek(line.b, home, mode)
   end
 
   # Moves this cursor to the end of its line.
-  def seek_line_end(home = true)
-    seek(line.e, home)
+  def seek_line_end(home = true, mode = CharMode.new)
+    seek(line.e, home, mode)
   end
 
   # Moves this cursor to the given *column*.
-  def seek_column(column : Int, home = true)
-    seek(line.b + column, home)
+  def seek_column(column : Int, home = true, mode = CharMode.new)
+    seek(line.b + column, home, mode)
   end
 
   # Inserts *string* before this cursor, then moves this cursor

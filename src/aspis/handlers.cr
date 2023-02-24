@@ -1,5 +1,13 @@
+module EventTarget
+  # Returns whether the control key is pressed.
+  property? ctrl = false
+
+  # Returns whether the shift key is pressed.
+  property? shift = false
+end
+
 abstract class EventHandler
-  def initialize(@target : Cohn)
+  def initialize(@target : EventTarget)
   end
 
   # Attaches an instance of this event handler to *target*.
@@ -8,7 +16,7 @@ abstract class EventHandler
   end
 
   # Helper method to set a "wall" around a macro so
-  # we cqn 'next' out.
+  # we can 'next' out.
   private def block
     yield
   end
@@ -33,6 +41,11 @@ abstract class EventHandler
 
       %target.{{name.id}}({{*args}}, {{**kwargs}})
     end
+  end
+
+  # Sets *name* to *value* in event target.
+  macro set(name, value)
+    @target.{{name.id}} = {{value}}
   end
 
   # Handles or ignores *event*.
@@ -80,10 +93,30 @@ end
 
 class KeyboardHandler < EventHandler
   def handle(event : SF::Event::KeyReleased)
-    send?(:on_key_released, event)
+    if event.code.l_control? || event.code.r_control?
+      set(:ctrl, false)
+    end
+
+    if event.code.l_shift? || event.code.r_shift?
+      set(:shift, false)
+    end
+
+    unless event.control && send?(:on_with_ctrl_released, event)
+      send?(:on_key_released, event)
+    end
   end
 
   def handle(event : SF::Event::KeyPressed)
-    send?(:on_key_pressed, event)
+    if event.code.l_control? || event.code.r_control? || event.control
+      set(:ctrl, true)
+    end
+
+    if event.code.l_shift? || event.code.r_shift? || event.shift
+      set(:shift, true)
+    end
+
+    unless event.control && send?(:on_with_ctrl_pressed, event)
+      send?(:on_key_pressed, event)
+    end
   end
 end
