@@ -10,9 +10,6 @@ end
 
 # [ ] self-sufficient cursor
 #
-# todo: when word is 1 character long word step is messed up
-# todo: when word step + delete cursor is hidden for some reason
-#
 #
 # ----
 #
@@ -22,11 +19,6 @@ end
 # [ ] handle ins/del 1 000 000s of selections and cursors bearably
 #     500 000 cursors do APPLY in: approx 500ms
 #     same for selections, really
-#
-# [+] AVOID looping over all million or 500 000 selections on each
-# frame!! build visible selection list in uniq_selections because
-# we do a linear pass there anyway
-#
 class Cohn
   include EventTarget
 

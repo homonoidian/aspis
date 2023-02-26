@@ -41,7 +41,15 @@ struct WordStep
   include CursorStep
 
   def advance(document : Document, prev : Int, nxt : Int) : Int
-    nxt < prev ? document.word_begin_at(nxt) : document.word_end_at(nxt)
+    b = document.word_begin_at(nxt)
+
+    return b if nxt < prev
+
+    e = document.word_end_at(b)
+
+    # If word is one character long and next lands at its end,
+    # return next.
+    e == nxt ? nxt : document.word_end_at(nxt)
   end
 end
 
