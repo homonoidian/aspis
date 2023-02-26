@@ -153,8 +153,10 @@ class Document
       @ops.sort_by! { |op| op.range.begin }
       min_index = @ops[0].range.begin
 
-      @buf.update(index_to_line(min_index).ord) do |src|
-        String.build do |io|
+      s = nil
+      bms = Time.measure do
+        src = @buf.@string
+        s = String.build do |io|
           size = 0
           start = 0
 
@@ -191,6 +193,17 @@ class Document
           io << src[start...src.size]
         end
       end
+      s = s.not_nil!
+
+      puts "Built in #{bms.total_microseconds}μs"
+
+      ums = Time.measure do
+        @buf.update(index_to_line(min_index).ord) do |src|
+          s
+        end
+      end
+
+      puts "Updated in #{ums.total_microseconds}μs"
 
       @i2c.clear
 
@@ -210,7 +223,7 @@ class Document
       @ops.clear
     end
 
-    puts "Done in #{tms.total_microseconds}"
+    puts "Done in #{tms.total_microseconds}μs"
   end
 
   def inspect(io)

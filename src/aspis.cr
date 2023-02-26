@@ -75,7 +75,6 @@ class Cohn
 
     if @selections.size > 1
       stack = [@selections.first] of Selection
-      visible = stack.first.visible? ? [stack.first] : [] of Selection
 
       @selections.each(within: 1..) do |hi|
         lo = stack.last
@@ -83,19 +82,17 @@ class Cohn
           stack.pop
           hi.min.seek(lo.min)
         end
-        visible << hi if hi.visible?
         stack << hi
       end
 
       @selections = stack
-      @visible_selections = visible
-    else
-      @visible_selections = @selections.dup # just sync
     end
 
     @selections.last.control do |cursor, _|
       cursor.scroll_to_view
     end
+
+    recompute_visible_selections
   end
 
   # just recompute visible
