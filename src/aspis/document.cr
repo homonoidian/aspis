@@ -18,19 +18,53 @@ record Sub < Op, selection : Selection, range : Range(Int32, Int32), string : St
   end
 end
 
+class SynText
+  def initialize(@document : Document, @font : SF::Font, @pt : Int32)
+    @text = SF::Text.new(@document.string, @font, @pt)
+    @text.fill_color = SF::Color::Black
+  end
+
+  def sync
+    @text.string = @document.string
+  end
+
+  def index_to_extent(index : Int)
+    is_bold = SF::Text::Style.new(@text.style.to_i).bold?
+    char = @document.@buf[index]
+    if char.in?('\n', '\r') # \r case is questionable tbh
+      char = ' '
+    end
+    SF.vector2f(@font.get_glyph(char.ord, @text.character_size, is_bold).advance, @pt)
+  end
+
+  def index_to_coords(index : Int)
+    if index < @document.top.b
+      @text.position
+    elsif index > @document.bot.e
+      index_to_coords(@document.bot.e) - index_to_coords(@document.bot.b)
+    else
+      @text.find_character_pos(index - @document.top.b)
+    end
+  end
+
+  def present(window)
+    window.draw(@text)
+  end
+end
+
 class Document
   property! editor : Cohn
 
   def initialize(@buf : TextBuffer, font : SF::Font)
-    @text = SF::Text.new(string, font, 11)
-    @text.fill_color = SF::Color::Black
     @ops = [] of Op
+    @text = uninitialized SynText # FIXME
+    @text = SynText.new(self, font, pt: 11)
   end
 
   delegate :word_begin_at, :word_end_at, :word_bounds_at, :size, to: @buf
 
   def sync
-    @text.string = string
+    @text.sync
   end
 
   def scroll_to_view(index : Int)
@@ -71,17 +105,11 @@ class Document
   @i2c = {} of Int32 => SF::Vector2f
 
   def index_to_coords(index : Int) # TODO: move to DocumentView
-    @i2c[index] ||= @text.find_character_pos(index)
+    @i2c[index] ||= @text.index_to_coords(index)
   end
 
   def index_to_extent(index : Int) # TODO: move to DocumentView
-    font = @text.font.not_nil!
-    is_bold = SF::Text::Style.new(@text.style.to_i).bold?
-    char = @buf[index]
-    if char.in?('\n', '\r') # \r case is questionable tbh
-      char = ' '
-    end
-    SF.vector2f(font.get_glyph(char.ord, @text.character_size, is_bold).advance, 11)
+    @text.index_to_extent(index)
   end
 
   def index_to_line(index : Int)
@@ -231,7 +259,7 @@ class Document
   end
 
   def present(window)
-    window.draw(@text)
+    @text.present(window)
   end
 end
 
@@ -262,18 +290,6 @@ class ScrollableDocument < Document
 
   def height
     24
-  end
-
-  def index_to_coords(index : Int)
-    @i2c[index] ||= begin
-      if index < top.b
-        @text.position
-      elsif index > bot.e
-        index_to_coords(bot.e) - index_to_coords(bot.b)
-      else
-        @text.find_character_pos(index - top.b)
-      end
-    end
   end
 
   def scroll(delta : Int)
