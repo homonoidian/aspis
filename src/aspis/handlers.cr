@@ -1,3 +1,6 @@
+# TODO: this should not exist: aspis is a logic only editor.
+# Keyboard event handling should be delegated to backends
+
 module EventTarget
   # Returns whether the control key is pressed.
   property? ctrl = false

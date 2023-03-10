@@ -47,11 +47,11 @@ module Hi
   end
 
   def pt : Int
-    @document.pt # TODO: query document view?
+    @document.pt # TODO: query theme?
   end
 
   def font
-    @document.font # TODO: query document view?
+    @document.font # TODO: query theme?
   end
 
   def color
@@ -75,7 +75,7 @@ struct HiKeyword
   end
 
   def font
-    ITALIC_FONT # TODO: query document view?
+    ITALIC_FONT # TODO: query theme?
   end
 end
 
@@ -301,6 +301,11 @@ struct SynText
     top = @document.index_to_line(self.begin)
     bot = @document.index_to_line(self.end)
 
+    # TODO: Document#scan(String s) where s = language id
+    #
+    # TODO: Document stores {} of Lanaguage Id => Grammar
+    #
+    # TODO: Grammar is an object which must implement #highlight(string, &)
     @document.scan(/\b(class|def|end|do|if|else|elsif|while|next|break|unless|yield|require|include|extend|case|when|then)\b/) do |match|
       b = match.begin
       e = match.end - 1
