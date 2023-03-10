@@ -18,37 +18,92 @@ record Sub < Op, selection : Selection, range : Range(Int32, Int32), string : St
   end
 end
 
-class SynText
-  def initialize(@document : Document, @font : SF::Font, @pt : Int32)
-    @text = SF::Text.new(@document.string, @font, @pt)
-    @text.fill_color = SF::Color::Black
+# A multi-line syntax fragment.
+#
+# origin  inset
+#  +     +
+#  v     v
+#        line of text\n
+#  another line of text\n
+#  another line of text\n
+#  another line of text\n
+#  another line of text\n
+#  last line of text
+class SynFrag
+  def initialize(
+    @document : Document,
+    @font : SF::Font, @pt : Int32,
+    @origin : SF::Vector2f,
+    @inset : SF::Vector2f
+  )
+    @inset_text = SF::Text.new("", @font, @pt)
+    @inset_text.position = @inset
+    @inset_text.fill_color = SF::Color::Black
+
+    @rest_text = SF::Text.new("", @font, @pt)
+    @rest_text.fill_color = SF::Color::Black
+    @rest_text.position = @origin
+
+    sync
   end
 
   def sync
-    @text.string = @document.string
+    # Inset holds the content of the first line.
+    # Rest holds the content of all other lines.
+    @inset_text.string = @document.top.content
+    @rest_text.string = @document.slice(@document.top.e + 1, @document.bot.e)
+
+    # Move rest text below inset text (i.e., on the Y axis).
+    @rest_text.position = @origin + SF.vector2f(0, @pt)
   end
 
   def index_to_extent(index : Int)
-    is_bold = SF::Text::Style.new(@text.style.to_i).bold?
-    char = @document.@buf[index]
-    if char.in?('\n', '\r') # \r case is questionable tbh
-      char = ' '
+    index_to_text_object(index) do |text|
+      is_bold = SF::Text::Style.new(text.style.to_i).bold?
+      char = @document.@buf[index]
+      if char.in?('\n', '\r') # \r case is questionable tbh
+        char = ' '
+      end
+      SF.vector2f(@font.get_glyph(char.ord, text.character_size, is_bold).advance, @pt)
     end
-    SF.vector2f(@font.get_glyph(char.ord, @text.character_size, is_bold).advance, @pt)
+  end
+
+  # Yields text object and document *index* localized to that
+  # text object (i.e., indexing into that text object).
+  def index_to_text_object(index : Int)
+    frag_index = index_to_frag_index(index)
+
+    if frag_index < @inset_text.string.size
+      text_index = frag_index
+      text_object = @inset_text
+    else
+      text_index = frag_index - @inset_text.string.size
+      text_object = @rest_text
+    end
+
+    yield text_object, text_index
+  end
+
+  # Localizes document *index* to this fragment.
+  def index_to_frag_index(index : Int)
+    index - @document.top.b
   end
 
   def index_to_coords(index : Int)
     if index < @document.top.b
-      @text.position
+      @inset_text.position
     elsif index > @document.bot.e
       index_to_coords(@document.bot.e) - index_to_coords(@document.bot.b)
     else
-      @text.find_character_pos(index - @document.top.b)
+      index_to_text_object(index) do |text, frag_index|
+        text.find_character_pos(frag_index)
+      end
     end
   end
 
   def present(window)
-    window.draw(@text)
+    window.draw(@inset_text)
+    window.draw(@rest_text)
   end
 end
 
@@ -57,11 +112,11 @@ class Document
 
   def initialize(@buf : TextBuffer, font : SF::Font)
     @ops = [] of Op
-    @text = uninitialized SynText # FIXME
-    @text = SynText.new(self, font, pt: 11)
+    @text = uninitialized SynFrag # FIXME
+    @text = SynFrag.new(self, font, pt: 11, origin: SF.vector2f(0, 0), inset: SF.vector2f(100, 0))
   end
 
-  delegate :word_begin_at, :word_end_at, :word_bounds_at, :size, to: @buf
+  delegate :word_begin_at, :word_end_at, :word_bounds_at, :size, :slice, to: @buf
 
   def sync
     @text.sync
@@ -87,7 +142,7 @@ class Document
   end
 
   def string
-    @buf.slice(top.b, bot.e)
+    slice(top.b, bot.e)
   end
 
   def clamp(index : Int)
