@@ -29,10 +29,11 @@ end
 #  another line of text\n
 #  another line of text\n
 #  last line of text
-class SynFrag
+struct SynFrag
   def initialize(
     @document : Document,
     @font : SF::Font, @pt : Int32,
+    @range : Range(Int32, Int32),
     @origin : SF::Vector2f,
     @inset : SF::Vector2f
   )
@@ -44,17 +45,31 @@ class SynFrag
     @rest_text.fill_color = SF::Color::Black
     @rest_text.position = @origin
 
-    sync
+    sync(@range)
   end
 
-  def sync
+  delegate :begin, :end, to: @range
+
+  # Returns the top line in this fragment.
+  def top
+    @document.index_to_line(self.begin)
+  end
+
+  # Returns the bottom line in this fragment.
+  def bot
+    @document.index_to_line(self.end)
+  end
+
+  def sync(@range : Range(Int32, Int32))
     # Inset holds the content of the first line.
     # Rest holds the content of all other lines.
     @inset_text.string = @document.top.content
-    @rest_text.string = @document.slice(@document.top.e + 1, @document.bot.e)
+    @rest_text.string = @document.slice(top.e + 1, self.end)
 
     # Move rest text below inset text (i.e., on the Y axis).
     @rest_text.position = @origin + SF.vector2f(0, @pt)
+
+    self
   end
 
   def index_to_extent(index : Int)
@@ -86,14 +101,14 @@ class SynFrag
 
   # Localizes document *index* to this fragment.
   def index_to_frag_index(index : Int)
-    index - @document.top.b
+    index - self.begin
   end
 
   def index_to_coords(index : Int)
-    if index < @document.top.b
+    if index < self.begin
       @inset_text.position
-    elsif index > @document.bot.e
-      index_to_coords(@document.bot.e) - index_to_coords(@document.bot.b)
+    elsif index > self.end
+      index_to_coords(self.end) - index_to_coords(bot.b)
     else
       index_to_text_object(index) do |text, frag_index|
         text.find_character_pos(frag_index)
@@ -113,13 +128,13 @@ class Document
   def initialize(@buf : TextBuffer, font : SF::Font)
     @ops = [] of Op
     @text = uninitialized SynFrag # FIXME
-    @text = SynFrag.new(self, font, pt: 11, origin: SF.vector2f(0, 0), inset: SF.vector2f(100, 0))
+    @text = SynFrag.new(self, font, pt: 11, range: top.b..bot.e, origin: SF.vector2f(0, 0), inset: SF.vector2f(100, 0))
   end
 
   delegate :word_begin_at, :word_end_at, :word_bounds_at, :size, :slice, to: @buf
 
   def sync
-    @text.sync
+    @text = @text.sync(top.b..bot.e)
   end
 
   def scroll_to_view(index : Int)
