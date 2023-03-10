@@ -57,6 +57,12 @@ record Line, buf : TextBuffer, ord : Int32, b : Int32, e : Int32 do
     b <= index <= e
   end
 
+  # Returns whether *range* is completely included in the bounds
+  # of this line.
+  def includes?(range : Range)
+    includes?(range.begin) && includes?(range.end)
+  end
+
   def inspect(io)
     io << "<Line ord=" << ord << " " << b << ":" << e << ">"
   end
