@@ -1,3 +1,13 @@
+# TODO: independent, dependency-less, logic-only text class?
+class SF::Text
+  def apply(hi : Hi)
+    self.fill_color = hi.color
+    self.style = hi.style
+    self.font = hi.font
+    self.character_size = hi.pt
+  end
+end
+
 abstract struct Op
 end
 
@@ -29,49 +39,68 @@ end
 #  another line of text\n
 #  another line of text\n
 #  last line of text
+
 ITALIC_FONT = SF::Font.from_file("assets/scientificaItalic.otb")
 
-struct SynFrag
-  enum Hi # TODO: struct
-    None
-    Keyword
-
-    def restyle(text : SF::Text)
-      case self
-      in .none?
-        text.fill_color = SF::Color::Black
-        text.style = SF::Text::Style::Regular
-      in .keyword?
-        text.fill_color = SF::Color::Blue
-        text.font = ITALIC_FONT # TODO: control by style
-      end
-    end
+module Hi
+  def initialize(@document : Document) # TODO: document view?
   end
+
+  def pt : Int
+    @document.pt # TODO: query document view?
+  end
+
+  def font
+    @document.font # TODO: query document view?
+  end
+
+  def color
+    SF::Color::Black # TODO: query theme?
+  end
+
+  def style
+    SF::Text::Style::Regular # TODO: query theme?
+  end
+end
+
+struct NoHi
+  include Hi
+end
+
+struct HiKeyword
+  include Hi
+
+  def color
+    SF::Color::Blue
+  end
+
+  def font
+    ITALIC_FONT # TODO: query document view?
+  end
+end
+
+struct SynFrag
+  getter hi : Hi
 
   def initialize(
     @document : Document,
-    @font : SF::Font, @pt : Int32, # TODO: controlled by style
     @range : Range(Int32, Int32),
     @origin : SF::Vector2f,
     @inset : SF::Vector2f,
-    @hi = Hi::None
+    @hi = NoHi.new(@document)
   )
-    @inset_text = SF::Text.new("", @font, @pt)
+    @inset_text = SF::Text.new("", hi.font, hi.pt)
     @inset_text.position = @inset
-    @hi.restyle(@inset_text)
+    @inset_text.apply(hi)
 
-    @rest_text = SF::Text.new("", @font, @pt)
+    @rest_text = SF::Text.new("", hi.font, hi.pt)
     @rest_text.position = @origin
-    @hi.restyle(@rest_text)
+    @rest_text.apply(hi)
 
     @inset_string = ""
     @rest_string = ""
 
     sync(@range)
-  end
-
-  def color
-    @hi.color
   end
 
   # Returns the index where this fragment begins.
@@ -122,7 +151,7 @@ struct SynFrag
       @inset_text.string = @inset_string = @document.slice(self.begin, top.e)
       @rest_text.string = @rest_string = @document.slice(top.e + 1, self.end)
       # Move rest text below inset text (i.e., on the Y axis).
-      @rest_text.position = @origin + SF.vector2f(0, @pt)
+      @rest_text.position = @origin + SF.vector2f(0, @hi.pt)
     end
 
     self
@@ -143,7 +172,7 @@ struct SynFrag
         mult = 4
       end
 
-      SF.vector2f(@font.get_glyph(char.ord, text.character_size, is_bold).advance * mult, @pt)
+      SF.vector2f(@hi.font.get_glyph(char.ord, text.character_size, is_bold).advance * mult, @hi.pt)
     end
   end
 
@@ -189,7 +218,6 @@ end
 struct SynText
   def initialize(
     @document : Document,
-    @font : SF::Font, @pt : Int32,
     @range : Range(Int32, Int32),
     @origin : SF::Vector2f
   )
@@ -212,10 +240,10 @@ struct SynText
     range.begin.in?(@range) && range.end.in?(@range)
   end
 
-  def frag(range : Range(Int32, Int32), origin : SF::Vector2f, inset : SF::Vector2f, hi = SynFrag::Hi::None)
+  def frag(range : Range(Int32, Int32), origin : SF::Vector2f, inset : SF::Vector2f, hi = NoHi.new(@document))
     must_be_subrange(range)
 
-    SynFrag.new(@document, @font, @pt, range, origin, inset, hi)
+    SynFrag.new(@document, range, origin, inset, hi)
   end
 
   def begin
@@ -254,7 +282,7 @@ struct SynText
       frag.each_char_with_index do |char, index|
         case char
         when '\n'
-          corner = SF.vector2f(@origin.x, corner.y + @pt)
+          corner = SF.vector2f(@origin.x, corner.y + frag.hi.pt)
         else
           corner += SF.vector2f(frag.index_to_extent(index).x, 0)
         end
@@ -286,7 +314,7 @@ struct SynText
         last = corner
       end
 
-      frag = frag(b..e, origin: SF.vector2f(@origin.x, last.y), inset: last, hi: SynFrag::Hi::Keyword)
+      frag = frag(b..e, origin: SF.vector2f(@origin.x, last.y), inset: last, hi: HiKeyword.new(@document))
       @frags << frag
       last = corner
 
@@ -316,12 +344,15 @@ struct SynText
 end
 
 class Document
-  property! editor : Cohn
+  property! editor : Cohn # TODO: smellish smell
 
-  def initialize(@buf : TextBuffer, font : SF::Font)
+  getter font, pt # TODO: these smell cheesy
+
+  def initialize(@buf : TextBuffer, @font : SF::Font) # TODO: font is document view
+    @pt = 11                                          # TODO: document view
     @ops = [] of Op
     @text = uninitialized SynText # FIXME
-    @text = SynText.new(self, font, pt: 11, range: top.b..bot.e, origin: SF.vector2f(0, 0))
+    @text = SynText.new(self, range: top.b..bot.e, origin: SF.vector2f(0, 0))
   end
 
   delegate :word_begin_at, :word_end_at, :word_bounds_at, :size, :slice, :[], to: @buf
@@ -446,6 +477,7 @@ class Document
     return if @ops.empty?
 
     tms = Time.measure do
+      # TODO: optimize! this is one of the most important & heated up parts of the editor
       imap = {} of Int32 => Int32
 
       @ops.sort_by! { |op| op.range.begin }
