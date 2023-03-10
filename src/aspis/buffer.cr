@@ -99,7 +99,11 @@ class TextBuffer
   # Slices this buffer from *b*egin index to *e*nd index.
   # Both ends are included.
   def slice(b : Int, e : Int)
-    @string[b, e - b + 1]
+    if b == 0 && e == size - 1
+      @string
+    else
+      @string[b, e - b + 1]
+    end
   end
 
   # Returns the *index*-th character in this buffer.

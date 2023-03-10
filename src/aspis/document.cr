@@ -453,7 +453,7 @@ class Document
 
       s = nil
       bms = Time.measure do
-        src = @buf.@string
+        src = @buf.slice(self.begin, self.end)
         s = String.build do |io|
           size = 0
           start = 0
