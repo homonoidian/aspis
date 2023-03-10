@@ -284,11 +284,28 @@ end
 # Block appearance for `Cursor`. Assumes the width of the
 # character under the cursor.
 class BlockCursor < Cursor
+  def initialize(*args, **kwargs)
+    super(*args, **kwargs)
+
+    @beam = SF::RectangleShape.new(size: SF.vector2f(1, 11)) # TODO: cursor view?
+    @beam.fill_color = SF::Color.new(0x0D, 0x47, 0xA1)
+  end
+
   def size
     SF.vector2f(@document.index_to_extent(@index).x, 11)
   end
 
   def color
     SF::Color.new(0x0D, 0x47, 0xA1, 0x66)
+  end
+
+  def present(window)
+    return unless visible?
+
+    super
+
+    @beam.position = rect.position
+
+    window.draw(@beam)
   end
 end
