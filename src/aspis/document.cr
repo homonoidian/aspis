@@ -18,7 +18,7 @@ record Sub < Op, selection : Selection, range : Range(Int32, Int32), string : St
   end
 end
 
-# A multi-line syntax fragment.
+# A multi-line capable syntax fragment.
 #
 # origin  inset
 #  +     +
@@ -29,26 +29,60 @@ end
 #  another line of text\n
 #  another line of text\n
 #  last line of text
+ITALIC_FONT = SF::Font.from_file("assets/scientificaItalic.otb")
+
 struct SynFrag
+  enum Hi # TODO: struct
+    None
+    Keyword
+
+    def restyle(text : SF::Text)
+      case self
+      in .none?
+        text.fill_color = SF::Color::Black
+        text.style = SF::Text::Style::Regular
+      in .keyword?
+        text.fill_color = SF::Color::Blue
+        text.font = ITALIC_FONT # TODO: control by style
+      end
+    end
+  end
+
   def initialize(
     @document : Document,
-    @font : SF::Font, @pt : Int32,
+    @font : SF::Font, @pt : Int32, # TODO: controlled by style
     @range : Range(Int32, Int32),
     @origin : SF::Vector2f,
-    @inset : SF::Vector2f
+    @inset : SF::Vector2f,
+    @hi = Hi::None
   )
     @inset_text = SF::Text.new("", @font, @pt)
     @inset_text.position = @inset
-    @inset_text.fill_color = SF::Color::Black
+    @hi.restyle(@inset_text)
 
     @rest_text = SF::Text.new("", @font, @pt)
-    @rest_text.fill_color = SF::Color::Black
     @rest_text.position = @origin
+    @hi.restyle(@rest_text)
+
+    @inset_string = ""
+    @rest_string = ""
 
     sync(@range)
   end
 
-  delegate :begin, :end, to: @range
+  def color
+    @hi.color
+  end
+
+  # Returns the index where this fragment begins.
+  def begin
+    @range.begin
+  end
+
+  # Returns the index where this fragment ends.
+  def end
+    @range.exclusive? ? @range.end - 1 : @range.end
+  end
 
   # Returns the top line in this fragment.
   def top
@@ -60,14 +94,36 @@ struct SynFrag
     @document.index_to_line(self.end)
   end
 
+  def string
+    @document.slice(self.begin, self.end)
+  end
+
+  def includes?(index : Int)
+    @range.includes?(index)
+  end
+
+  def each_char_with_index
+    @range.each do |index|
+      yield @document[index], index
+    end
+  end
+
+  # Updates this fragment's displayed content according to
+  # *range*. Returns an updated copy of `SynText`. This copy
+  # must be used instead of self after `sync`.
   def sync(@range : Range(Int32, Int32))
     # Inset holds the content of the first line.
     # Rest holds the content of all other lines.
-    @inset_text.string = @document.top.content
-    @rest_text.string = @document.slice(top.e + 1, self.end)
 
-    # Move rest text below inset text (i.e., on the Y axis).
-    @rest_text.position = @origin + SF.vector2f(0, @pt)
+    if @range.in?(top)
+      @inset_text.string = @inset_string = @document.slice(self.begin, self.end)
+      @rest_text.string = @rest_string = ""
+    else
+      @inset_text.string = @inset_string = @document.slice(self.begin, top.e)
+      @rest_text.string = @rest_string = @document.slice(top.e + 1, self.end)
+      # Move rest text below inset text (i.e., on the Y axis).
+      @rest_text.position = @origin + SF.vector2f(0, @pt)
+    end
 
     self
   end
@@ -75,11 +131,19 @@ struct SynFrag
   def index_to_extent(index : Int)
     index_to_text_object(index) do |text|
       is_bold = SF::Text::Style.new(text.style.to_i).bold?
-      char = @document.@buf[index]
-      if char.in?('\n', '\r') # \r case is questionable tbh
+
+      char = @document[index]
+      mult = 1
+
+      case char
+      when '\n', '\r' # \r case is questionable tbh
         char = ' '
+      when '\t'
+        char = ' '
+        mult = 4
       end
-      SF.vector2f(@font.get_glyph(char.ord, text.character_size, is_bold).advance, @pt)
+
+      SF.vector2f(@font.get_glyph(char.ord, text.character_size, is_bold).advance * mult, @pt)
     end
   end
 
@@ -88,11 +152,11 @@ struct SynFrag
   def index_to_text_object(index : Int)
     frag_index = index_to_frag_index(index)
 
-    if frag_index < @inset_text.string.size
+    if frag_index < @inset_string.size
       text_index = frag_index
       text_object = @inset_text
     else
-      text_index = frag_index - @inset_text.string.size
+      text_index = frag_index - @inset_string.size
       text_object = @rest_text
     end
 
@@ -122,16 +186,145 @@ struct SynFrag
   end
 end
 
+struct SynText
+  def initialize(
+    @document : Document,
+    @font : SF::Font, @pt : Int32,
+    @range : Range(Int32, Int32),
+    @origin : SF::Vector2f
+  )
+    @frags = [] of SynFrag
+
+    sync(range)
+  end
+
+  # Ensures *range* is a subrange of this syntax text's range:
+  # raises `ArgumentError` otherwise.
+  private def must_be_subrange(range : Range)
+    unless subrange?(range)
+      raise ArgumentError.new("argument out of subrange bounds: #{range}")
+    end
+  end
+
+  # Returns whether *range* is a subrange of this syntax
+  # text's range.
+  def subrange?(range : Range(Int32, Int32))
+    range.begin.in?(@range) && range.end.in?(@range)
+  end
+
+  def frag(range : Range(Int32, Int32), origin : SF::Vector2f, inset : SF::Vector2f, hi = SynFrag::Hi::None)
+    must_be_subrange(range)
+
+    SynFrag.new(@document, @font, @pt, range, origin, inset, hi)
+  end
+
+  def begin
+    @range.begin
+  end
+
+  def end
+    @range.exclusive? ? @range.end - 1 : @range.end
+  end
+
+  # Finds and returns the `SynFrag` which contains the given
+  # document *index*.
+  def index_to_frag(index : Int)
+    if frag = @frags.find &.includes?(index)
+      return frag
+    end
+
+    # Note: frags are guaranteed to have at least one member.
+    index < self.begin ? @frags.first : @frags.last
+  end
+
+  def index_to_extent(index : Int)
+    frag = index_to_frag(index)
+    frag.index_to_extent(index)
+  end
+
+  def index_to_coords(index : Int)
+    frag = index_to_frag(index)
+    frag.index_to_coords(index)
+  end
+
+  private def corner
+    corner = @origin
+
+    @frags.each do |frag|
+      frag.each_char_with_index do |char, index|
+        case char
+        when '\n'
+          corner = SF.vector2f(@origin.x, corner.y + @pt)
+        else
+          corner += SF.vector2f(frag.index_to_extent(index).x, 0)
+        end
+      end
+    end
+
+    corner
+  end
+
+  def sync(@range : Range(Int32, Int32))
+    @frags.clear
+
+    start = self.begin
+    last = @origin
+
+    top = @document.index_to_line(self.begin)
+    bot = @document.index_to_line(self.end)
+
+    @document.scan(/\b(class|def|end|do|if|else|elsif|while|next|break|unless|yield|require|include|extend|case|when|then)\b/) do |match|
+      b = match.begin
+      e = match.end - 1
+
+      next if b < top.b
+      break if e > bot.e
+
+      if start < b
+        frag = frag(start..b - 1, origin: SF.vector2f(@origin.x, last.y), inset: last)
+        @frags << frag
+        last = corner
+      end
+
+      frag = frag(b..e, origin: SF.vector2f(@origin.x, last.y), inset: last, hi: SynFrag::Hi::Keyword)
+      @frags << frag
+      last = corner
+
+      start = e + 1
+    end
+
+    if start <= self.end
+      frag = frag(start..self.end, origin: SF.vector2f(@origin.x, last.y), inset: last)
+      @frags << frag
+    end
+
+    # pp @frags
+
+    # If no frags were created before the end of sync(), shove
+    # everything in the sync-d range into one fragment and push
+    # it instead.
+    if @frags.empty?
+      @frags << frag(range, @origin, @origin)
+    end
+
+    self
+  end
+
+  def present(window)
+    @frags.each &.present(window)
+  end
+end
+
 class Document
   property! editor : Cohn
 
   def initialize(@buf : TextBuffer, font : SF::Font)
     @ops = [] of Op
-    @text = uninitialized SynFrag # FIXME
-    @text = SynFrag.new(self, font, pt: 11, range: top.b..bot.e, origin: SF.vector2f(0, 0), inset: SF.vector2f(100, 0))
+    @text = uninitialized SynText # FIXME
+    @text = SynText.new(self, font, pt: 11, range: top.b..bot.e, origin: SF.vector2f(0, 0))
   end
 
-  delegate :word_begin_at, :word_end_at, :word_bounds_at, :size, :slice, to: @buf
+  delegate :word_begin_at, :word_end_at, :word_bounds_at, :size, :slice, :[], to: @buf
 
   def sync
     @text = @text.sync(top.b..bot.e)
@@ -170,6 +363,13 @@ class Document
 
   def ord_to_line?(ord : Int)
     @buf.line?(ord)
+  end
+
+  def scan(pattern)
+    string = slice(self.begin, self.end)
+    string.scan(pattern) do |match|
+      yield match
+    end
   end
 
   @i2c = {} of Int32 => SF::Vector2f
