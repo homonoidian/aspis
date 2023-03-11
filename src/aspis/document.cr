@@ -399,7 +399,9 @@ class Document
 
   getter theme
 
-  def initialize(@buf : TextBuffer, @theme : Theme) # TODO: font is document view
+  getter platform
+
+  def initialize(@platform : Platform, @buf : TextBuffer, @theme : Theme) # TODO: font is document view
     @ops = [] of Op
     @text = uninitialized SynText # FIXME
     @text = SynText.new(self, range: top.b..bot.e, origin: SF.vector2f(0, 0))

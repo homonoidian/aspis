@@ -22,17 +22,28 @@ end
 class Cohn
   include EventTarget
 
-  def initialize(@window : SF::RenderWindow, content, @theme : Theme)
+  @editor_rect : Platform::Rect
+
+  def initialize(@window : SF::RenderWindow, content, @platform : Platform, @theme : Theme)
     @buf = TextBuffer.new(content)
-    @document = ScrollableDocument.new(@buf, @theme)
+    @document = ScrollableDocument.new(platform, @buf, @theme)
 
     @selections = [] of Selection
     @selections << selection(0, focus: false)
 
     @visible_selections = [] of Selection
-    @editor_rect = SF::RectangleShape.new
-    @editor_rect.size = SF.vector2f(300, 300) # TODO: compute
-    @editor_rect.fill_color = @theme.bg
+
+    @editor_rect = platform.rect(
+      bg: {@theme.bg.r,
+           @theme.bg.g,
+           @theme.bg.b,
+           @theme.bg.a},
+      w: 300,
+      h: 300,
+    )
+
+    # @editor_rect.size = @platform.send( Vec2f.new(300, 300).to_sf # TODO: platform send: CreateRect(id=UUID, 300x300)
+    # @editor_rect.fill_color = @theme.bg
 
     # @selection = Selection.new(@document, @cursor, @anchor)
 
@@ -46,8 +57,21 @@ class Cohn
     recompute_visible_selections
   end
 
+  def acquire
+    @editor_rect.acquire(@platform)
+  end
+
+  def release
+    @editor_rect.release(@platform)
+  end
+
   def theme=(@theme : Theme) # TODO: smelly
-    @editor_rect.fill_color = @theme.bg
+    new_rect = @editor_rect
+    new_rect.bg = {theme.bg.r,
+                   @theme.bg.g,
+                   @theme.bg.b,
+                   @theme.bg.a}
+    @editor_rect = new_rect
     @document.theme = @theme
   end
 
@@ -95,9 +119,17 @@ class Cohn
     recompute_visible_selections
   end
 
-  # just recompute visible
+  # just recompute visible, release/acquire rects
   def recompute_visible_selections
-    @visible_selections = @selections.select(&.visible?)
+    @visible_selections = @selections.select do |sel|
+      if sel.visible?
+        sel.acquire
+        true
+      else
+        sel.release
+        false
+      end
+    end
   end
 
   # use everywhere you touch @selections or @document !!!
@@ -107,9 +139,14 @@ class Cohn
     result
   end
 
+  def clear_selections_from(start : Int)
+    @selections.each(within: start.., &.release)
+    @selections.clear_from(start)
+  end
+
   def on_drag(event : SF::Event::MouseMoved)
     i_touch_selections_or_doc do
-      @selections.clear_from(1)
+      clear_selections_from(1)
       @selections.each &.split
       @selections.each do |sel|
         sel.control do |cursor, anchor|
@@ -130,7 +167,7 @@ class Cohn
         end
         @selections << seln
       elsif shift?
-        @selections.clear_from(1)
+        clear_selections_from(1)
         @selections.each &.split
         @selections.each do |selection|
           selection.control do |cursor, anchor|
@@ -138,7 +175,7 @@ class Cohn
           end
         end
       else
-        @selections.clear_from(1)
+        clear_selections_from(1)
         @selections[0].collapse
         @selections[0].control do |cursor, anchor|
           cursor.seek(@document.coords_to_index(event.x, event.y))
@@ -170,7 +207,7 @@ class Cohn
       end
     when .a? # Select all
       i_touch_selections_or_doc do
-        @selections.clear_from(1)
+        clear_selections_from(1)
         @selections[0].select_all
       end
     when .l? # Select line
@@ -465,7 +502,7 @@ class Cohn
         @handlers.each &.handle(event)
       end
       @window.clear(SF::Color::White)
-      @window.draw(@editor_rect)
+      @editor_rect.upload(@platform)
       @document.present(@window)
       @visible_selections.each do |seln|
         seln.present(@window)
@@ -621,6 +658,44 @@ struct NordTheme
   end
 end
 
+# SF platform backend
+sf_stream = Stream(Platform::Message).new
+rects = {} of UUID => SF::RectangleShape
+released = [] of SF::RectangleShape
+
+warning_threshold = 1000
+sf_stream.each do |message|
+  if rects.size > warning_threshold
+    puts "WARNING: #{rects.size} acquired / #{released.size} released"
+    warning_threshold += 1000
+  end
+  case message.keyword # TODO: use integers/enum
+  in .rect_acquire?
+    # Check if we have any released rects available.
+    id = message.unpack(UUID)
+    rects[id] ||= begin
+      released.pop? || SF::RectangleShape.new
+    end
+  in .rect_release?
+    id = message.unpack(UUID)
+    rects.delete(id).try { |rect| released << rect }
+  in .rect_draw?
+    rect = message.unpack(Platform::Rect)
+    shape = rects[rect.id]? || next
+    shape.fill_color = SF::Color.new(rect.bg[0], rect.bg[1], rect.bg[2], rect.bg[3])
+    shape.position = SF.vector2f(rect.x, rect.y)
+    shape.size = SF.vector2f(rect.w, rect.h)
+    window.draw(shape)
+  end
+end
+
 cohn = uninitialized Cohn # TODO: fixme!
-cohn = Cohn.new(window, content, LightTheme.new(cohn))
-cohn.mainloop
+cohn = Cohn.new(window, content, Platform.new(sf_stream), LightTheme.new(cohn))
+cohn.acquire
+begin
+  cohn.mainloop
+ensure
+  cohn.release
+end
+
+at_exit { puts "Rects: #{rects.size}" }

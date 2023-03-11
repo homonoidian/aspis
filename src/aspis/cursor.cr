@@ -25,10 +25,16 @@ class Cursor
   # this cursor moves.
   getter motions : Stream(Motion) { Stream(Motion).new }
 
-  # Returns the rectangle shape used by this cursor.
-  private getter rect : SF::RectangleShape { SF::RectangleShape.new }
+  @rect : Platform::Rect
 
   def initialize(@document : Document, @index : Int32, @home_column : Int32 = 0)
+    @rect = @document.platform.rect({ # TODO: store color as RGBA or custom Color type
+      color.r,
+      color.g,
+      color.b,
+      color.a,
+    }, w: size.x.to_i, h: size.y.to_i)
+
     move(0)
   end
 
@@ -205,8 +211,13 @@ class Cursor
     @home_column = @index - line.b if settings.home
 
     if visible?
-      rect.size = size
-      rect.position = coords
+      # TODO: update_rect or something
+      new_rect = @rect
+      new_rect.w = size.x
+      new_rect.h = size.y
+      new_rect.x = coords.x
+      new_rect.y = coords.y
+      @rect = new_rect
     end
 
     # Prevent infinite loop down the stream. There ought to be
@@ -269,14 +280,28 @@ class Cursor
     SF::Color.new(color.r, color.g, color.b, 0xcc)
   end
 
+  def acquire
+    @rect.acquire(@document.platform)
+  end
+
+  def release
+    @rect.release(@document.platform)
+  end
+
   # Presents this cursor on *window*.
   def present(window)
     return unless visible?
 
-    rect.size = size
-    rect.fill_color = color
+    # TODO: update_rect or something
+    # TODO: do this on demand PLEEEASE
 
-    window.draw(rect)
+    new_rect = @rect
+    new_rect.w = size.x
+    new_rect.h = size.y
+    new_rect.x = coords.x
+    new_rect.y = coords.y
+    @rect = new_rect
+    @rect.upload(@document.platform)
   end
 
   # Two cursors are equal when their indices are equal.
@@ -286,10 +311,19 @@ end
 # Block appearance for `Cursor`. Assumes the width of the
 # character under the cursor.
 class BlockCursor < Cursor
-  def initialize(*args, **kwargs)
-    super(*args, **kwargs)
+  @beam : Platform::Rect
 
-    @beam = SF::RectangleShape.new(size: SF.vector2f(1, 11)) # TODO: cursor view?
+  def initialize(*args, **kwargs)
+    super
+
+    @beam = @document.platform.rect(
+      {@document.theme.beam_color.r,
+       @document.theme.beam_color.g,
+       @document.theme.beam_color.b,
+       @document.theme.beam_color.a},
+      w: 1,
+      h: size.y
+    )
   end
 
   def size
@@ -302,14 +336,31 @@ class BlockCursor < Cursor
     SF::Color.new(color.r, color.g, color.b, 0x66)
   end
 
+  def acquire
+    super
+    @beam.acquire(@document.platform)
+  end
+
+  def release
+    super
+    @beam.release(@document.platform)
+  end
+
   def present(window)
     return unless visible?
 
     super
 
-    @beam.position = rect.position
-    @beam.fill_color = @document.theme.beam_color
+    # TODO: do this on demand PLEEEASE
+    new_beam = @beam
+    new_beam.x = @rect.x
+    new_beam.y = @rect.y
+    new_beam.bg = {@document.theme.beam_color.r,
+                   @document.theme.beam_color.g,
+                   @document.theme.beam_color.b,
+                   @document.theme.beam_color.a}
 
-    window.draw(@beam)
+    @beam = new_beam
+    @beam.upload(@document.platform)
   end
 end

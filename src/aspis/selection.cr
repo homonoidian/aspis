@@ -39,8 +39,10 @@ class Selection
     min <=> other.min
   end
 
-  # Recalculates the span.
+  # Recalculates the span. Does quite a lot of work: try invoking
+  # only when you (sort of) know the span changed.
   def sync
+    @span.try &.release
     @span = collapsed? || !visible? ? nil : min.span(upto: max)
   end
 
@@ -278,6 +280,18 @@ class Selection
       ccopy.ymove(+1)
       acopy.ymove(+1) unless collapsed?
     end
+  end
+
+  def acquire
+    @cursor.acquire
+    @anchor.acquire
+    @span.try &.acquire
+  end
+
+  def release
+    @cursor.release
+    @anchor.release
+    @span.try &.release
   end
 
   # Displays this selection in *window*.

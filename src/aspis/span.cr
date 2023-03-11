@@ -1,6 +1,6 @@
 struct Span
   def initialize(@document : Document)
-    @frags = [] of SF::RectangleShape
+    @frags = [] of Platform::Rect
   end
 
   def self.build(document : Document, from : Int, to : Int)
@@ -28,14 +28,18 @@ struct Span
 
     b_pos = @document.index_to_coords(b)
     e_pos = @document.index_to_coords(e)
+    ledge_w = ledge ? self.ledge : 0
 
-    shape = SF::RectangleShape.new
-    shape.size = SF.vector2f(e_pos.x - b_pos.x, height)
-    shape.size += SF.vector2f(self.ledge, 0) if ledge
-    shape.position = b_pos
-    shape.fill_color = color
+    # TODo: beautify
+    rect = @document.platform.rect(
+      bg: {color.r, color.g, color.b, color.a},
+      x: b_pos.x,
+      y: b_pos.y,
+      w: (e_pos.x - b_pos.x) + ledge_w,
+      h: height,
+    )
 
-    @frags << shape
+    @frags << rect
   end
 
   def build(begin b : Int, end e : Int)
@@ -61,7 +65,16 @@ struct Span
     btop.upto(bbot) { |line| inline_frag line, ledge: true }
   end
 
+  def acquire
+    @frags.each &.acquire(@document.platform)
+  end
+
+  def release
+    @frags.each &.release(@document.platform)
+  end
+
   def present(window)
-    @frags.each { |frag| window.draw(frag) }
+    # TODO: do this on demand somehow?
+    @frags.each &.upload(@document.platform)
   end
 end
