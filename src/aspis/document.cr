@@ -414,6 +414,10 @@ class Document
   def theme=(@theme)
     sync
   end
+
+  def scroll(delta : Int)
+  end
+
   def scroll_to_view(index : Int)
   end
 
