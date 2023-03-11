@@ -350,7 +350,7 @@ struct SynText
     # TODO: Document stores {} of Lanaguage Id => Grammar
     #
     # TODO: Grammar is an object which must implement #highlight(string, &)
-    @document.scan(/\b(class|def|end|do|if|else|elsif|while|next|break|unless|yield|require|include|extend|case|when|then)\b/) do |match|
+    @document.scan(/\b(class|def|end|do|if|else|elsif|while|next|break|unless|yield|require|include|extend|case|when|then|in)\b/) do |match|
       b = match.begin
       e = match.end - 1
 
