@@ -26,11 +26,7 @@ class Cursor
   getter motions : Stream(Motion) { Stream(Motion).new }
 
   # Returns the rectangle shape used by this cursor.
-  private getter rect : SF::RectangleShape do
-    rect = SF::RectangleShape.new
-    rect.fill_color = color
-    rect
-  end
+  private getter rect : SF::RectangleShape { SF::RectangleShape.new }
 
   def initialize(@document : Document, @index : Int32, @home_column : Int32 = 0)
     move(0)
@@ -267,12 +263,18 @@ class Cursor
 
   # Returns the color of this cursor.
   def color
-    SF::Color.new(0x15, 0x65, 0xC0, 0xcc)
+    color = @document.theme.cursor_color
+
+    # Use theme color, but control opacity.
+    SF::Color.new(color.r, color.g, color.b, 0xcc)
   end
 
   # Presents this cursor on *window*.
   def present(window)
     return unless visible?
+
+    rect.size = size
+    rect.fill_color = color
 
     window.draw(rect)
   end
@@ -288,7 +290,6 @@ class BlockCursor < Cursor
     super(*args, **kwargs)
 
     @beam = SF::RectangleShape.new(size: SF.vector2f(1, 11)) # TODO: cursor view?
-    @beam.fill_color = SF::Color.new(0x0D, 0x47, 0xA1)
   end
 
   def size
@@ -296,7 +297,9 @@ class BlockCursor < Cursor
   end
 
   def color
-    SF::Color.new(0x0D, 0x47, 0xA1, 0x66)
+    color = super
+
+    SF::Color.new(color.r, color.g, color.b, 0x66)
   end
 
   def present(window)
@@ -305,6 +308,7 @@ class BlockCursor < Cursor
     super
 
     @beam.position = rect.position
+    @beam.fill_color = @document.theme.beam_color
 
     window.draw(@beam)
   end

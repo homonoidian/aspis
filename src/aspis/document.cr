@@ -39,43 +39,87 @@ end
 #  another line of text\n
 #  another line of text\n
 #  last line of text
+module Theme
+  # TODO: dynamic scopes + scope inheritance + fallback scope?
 
-ITALIC_FONT = SF::Font.from_file("assets/scientificaItalic.otb")
-
-module Hi
-  def initialize(@document : Document) # TODO: document view?
+  def initialize(@editor : Cohn)
   end
 
-  def pt : Int
-    @document.pt # TODO: query theme?
+  abstract def source : Theme::Scope
+  abstract def keyword : Theme::Scope
+
+  # todo: fg
+  # todo: font
+  # todo: font size
+
+  # Returns the background color that should be used for the editor.
+  abstract def bg : SF::Color
+
+  # Returns the color that should be used for cursors.
+  abstract def cursor_color : SF::Color
+
+  # Returns the color that should be used for beams, e.g. on
+  # the left-hand side of block cursors.
+  abstract def beam_color : SF::Color
+
+  # Returns the color that should be used for selection rectangles.
+  abstract def span_bg : SF::Color
+end
+
+module Theme::Scope
+  # Returns the font size that should be used for highlights
+  # that match this scope.
+  abstract def pt : Int # todo: fallback on theme
+
+  # Returns the font that should be used for highlights that
+  # match this scope.
+  abstract def font : SF::Font # todo: fontmanager::font todo: fallback on theme
+
+  # Returns the color that should be used for highlights that
+  # match this scope.
+  abstract def color : SF::Color # todo: fallback on theme
+
+  # Returns the text style (regular, italic, bold, etc.) that
+  # should be used for highlights that match this scope.
+  abstract def style : SF::Text::Style # todo: fontmanager::style
+end
+
+module Hi
+  def initialize(@theme : Theme)
+  end
+
+  abstract def scope : Theme::Scope
+
+  def pt
+    scope.pt
   end
 
   def font
-    @document.font # TODO: query theme?
+    scope.font
   end
 
   def color
-    SF::Color::Black # TODO: query theme?
+    scope.color
   end
 
   def style
-    SF::Text::Style::Regular # TODO: query theme?
+    scope.style
   end
 end
 
 struct NoHi
   include Hi
+
+  def scope : Theme::Scope
+    @theme.source
+  end
 end
 
 struct HiKeyword
   include Hi
 
-  def color
-    SF::Color::Blue
-  end
-
-  def font
-    ITALIC_FONT # TODO: query theme?
+  def scope : Theme::Scope
+    @theme.keyword
   end
 end
 
@@ -240,7 +284,7 @@ struct SynText
     range.begin.in?(@range) && range.end.in?(@range)
   end
 
-  def frag(range : Range(Int32, Int32), origin : SF::Vector2f, inset : SF::Vector2f, hi = NoHi.new(@document))
+  def frag(range : Range(Int32, Int32), origin : SF::Vector2f, inset : SF::Vector2f, hi = NoHi.new(@document.theme))
     must_be_subrange(range)
 
     SynFrag.new(@document, range, origin, inset, hi)
@@ -319,7 +363,7 @@ struct SynText
         last = corner
       end
 
-      frag = frag(b..e, origin: SF.vector2f(@origin.x, last.y), inset: last, hi: HiKeyword.new(@document))
+      frag = frag(b..e, origin: SF.vector2f(@origin.x, last.y), inset: last, hi: HiKeyword.new(@document.theme))
       @frags << frag
       last = corner
 
@@ -353,8 +397,9 @@ class Document
 
   getter font, pt # TODO: these smell cheesy
 
-  def initialize(@buf : TextBuffer, @font : SF::Font) # TODO: font is document view
-    @pt = 11                                          # TODO: document view
+  getter theme
+
+  def initialize(@buf : TextBuffer, @theme : Theme) # TODO: font is document view
     @ops = [] of Op
     @text = uninitialized SynText # FIXME
     @text = SynText.new(self, range: top.b..bot.e, origin: SF.vector2f(0, 0))
@@ -366,6 +411,9 @@ class Document
     @text = @text.sync(top.b..bot.e)
   end
 
+  def theme=(@theme)
+    sync
+  end
   def scroll_to_view(index : Int)
   end
 

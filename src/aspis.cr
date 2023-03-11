@@ -22,14 +22,17 @@ end
 class Cohn
   include EventTarget
 
-  def initialize(@window : SF::RenderWindow, content, font)
+  def initialize(@window : SF::RenderWindow, content, @theme : Theme)
     @buf = TextBuffer.new(content)
-    @document = ScrollableDocument.new(@buf, font)
+    @document = ScrollableDocument.new(@buf, @theme)
 
     @selections = [] of Selection
     @selections << selection(0, focus: false)
 
     @visible_selections = [] of Selection
+    @editor_rect = SF::RectangleShape.new
+    @editor_rect.size = SF.vector2f(300, 300) # TODO: compute
+    @editor_rect.fill_color = @theme.bg
 
     # @selection = Selection.new(@document, @cursor, @anchor)
 
@@ -41,6 +44,11 @@ class Cohn
     @document.editor = self
 
     recompute_visible_selections
+  end
+
+  def theme=(@theme : Theme) # TODO: smelly
+    @editor_rect.fill_color = @theme.bg
+    @document.theme = @theme
   end
 
   def selection(cidx : Cursor | Int = 0, aidx : Cursor | Int = cidx, focus = true)
@@ -154,6 +162,12 @@ class Cohn
 
   def on_with_ctrl_pressed(event : SF::Event::KeyPressed)
     case event.code
+    when .t? # TOGGLE THEME # todo: remove
+      if @theme.is_a?(NordTheme)
+        self.theme = LightTheme.new(self)
+      else
+        self.theme = NordTheme.new(self)
+      end
     when .a? # Select all
       i_touch_selections_or_doc do
         @selections.clear_from(1)
@@ -451,6 +465,7 @@ class Cohn
         @handlers.each &.handle(event)
       end
       @window.clear(SF::Color::White)
+      @window.draw(@editor_rect)
       @document.present(@window)
       @visible_selections.each do |seln|
         seln.present(@window)
@@ -460,10 +475,152 @@ class Cohn
   end
 end
 
+# TODO: font manager
+# TODO: fontmanager::font
+# TODO: fontmanager::style
+FONT        = SF::Font.from_file("./assets/scientifica.otb")
+FONT_ITALIC = SF::Font.from_file("assets/scientificaItalic.otb")
+
 window = SF::RenderWindow.new(SF::VideoMode.new(600, 800), title: "Marple")
 window.framerate_limit = 60
-font = SF::Font.from_file("./assets/scientifica.otb")
 content = File.read(ARGV[0]? || "marple.cr")
 
-cohn = Cohn.new(window, content, font)
+struct LightTheme
+  include Theme
+
+  struct NormalScope
+    include Scope
+
+    def pt : Int
+      11
+    end
+
+    def font : SF::Font
+      FONT
+    end
+
+    def color : SF::Color
+      SF::Color::Black
+    end
+
+    def style : SF::Text::Style
+      SF::Text::Style::Regular
+    end
+  end
+
+  struct KeywordScope
+    include Scope
+
+    def pt : Int
+      11
+    end
+
+    def font : SF::Font
+      FONT_ITALIC
+    end
+
+    def color : SF::Color
+      SF::Color::Blue
+    end
+
+    def style : SF::Text::Style
+      SF::Text::Style::Regular
+    end
+  end
+
+  def source : Theme::Scope
+    NormalScope.new
+  end
+
+  def keyword : Theme::Scope
+    KeywordScope.new
+  end
+
+  def bg : SF::Color
+    SF::Color::White
+  end
+
+  def cursor_color : SF::Color
+    SF::Color.new(0x15, 0x65, 0xC0)
+  end
+
+  def beam_color : SF::Color
+    SF::Color.new(0x0D, 0x47, 0xA1)
+  end
+
+  def span_bg : SF::Color
+    SF::Color.new(0, 0, 0xff)
+  end
+end
+
+struct NordTheme
+  include Theme
+
+  struct NormalScope
+    include Scope
+
+    def pt : Int
+      11
+    end
+
+    def font : SF::Font
+      FONT
+    end
+
+    def color : SF::Color
+      SF::Color.new(0xd8, 0xde, 0xe9)
+    end
+
+    def style : SF::Text::Style
+      SF::Text::Style::Regular
+    end
+  end
+
+  struct KeywordScope
+    include Scope
+
+    def pt : Int
+      11
+    end
+
+    def font : SF::Font
+      FONT_ITALIC
+    end
+
+    def color : SF::Color
+      SF::Color.new(0xb4, 0x8e, 0xad)
+    end
+
+    def style : SF::Text::Style
+      SF::Text::Style::Regular
+    end
+  end
+
+  def source : Theme::Scope
+    NormalScope.new
+  end
+
+  def keyword : Theme::Scope
+    KeywordScope.new
+  end
+
+  def bg : SF::Color
+    SF::Color.new(0x2e, 0x34, 0x40)
+  end
+
+  def cursor_color : SF::Color
+    SF::Color.new(0x5e, 0x81, 0xac)
+  end
+
+  def beam_color : SF::Color
+    SF::Color.new(0x81, 0xa1, 0xc1)
+  end
+
+  def span_bg : SF::Color
+    SF::Color.new(0xa3, 0xbe, 0x8c)
+  end
+end
+
+cohn = uninitialized Cohn # TODO: fixme!
+cohn = Cohn.new(window, content, LightTheme.new(cohn))
 cohn.mainloop

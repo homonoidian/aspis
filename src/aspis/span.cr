@@ -10,7 +10,9 @@ struct Span
   end
 
   def color
-    SF::Color.new(0, 0, 0xff, 0x22)
+    color = @document.theme.span_bg
+
+    SF::Color.new(color.r, color.g, color.b, 0x22)
   end
 
   def ledge
